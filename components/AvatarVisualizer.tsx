@@ -34,9 +34,13 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ volumeRef, color, i
     }
 
     const render = () => {
-      // Resize
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
+      // Optimization: Check if canvas size actually changed before setting width/height
+      // Setting width/height clears the canvas context automatically
+      if (canvas.width !== canvas.offsetWidth || canvas.height !== canvas.offsetHeight) {
+          canvas.width = canvas.offsetWidth;
+          canvas.height = canvas.offsetHeight;
+      }
+      
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
 

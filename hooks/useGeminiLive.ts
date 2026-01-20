@@ -111,6 +111,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   }, []);
 
   const disconnect = useCallback(async () => {
+    // 1. Immediately flag as disconnected to stop audio processing loops
     isConnectedRef.current = false;
     
     // Clear any pending reconnects
@@ -119,6 +120,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         autoReconnectTimerRef.current = null;
     }
 
+    // 2. Close session
     if (currentSessionRef.current) {
         try { currentSessionRef.current.close(); } catch (e) {}
         currentSessionRef.current = null;
@@ -127,19 +129,23 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     stopAllAudio();
     activeConnectionParamsRef.current = null;
     
+    // 3. Stop Media Tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
+
+    // 4. Disconnect Processor explicitly
     if (processorNodeRef.current) {
-      processorNodeRef.current.disconnect();
+      try { processorNodeRef.current.disconnect(); } catch(e) {}
       processorNodeRef.current = null;
     }
     if (sourceNodeRef.current) {
-      sourceNodeRef.current.disconnect();
+      try { sourceNodeRef.current.disconnect(); } catch(e) {}
       sourceNodeRef.current = null;
     }
     
+    // 5. Close Audio Contexts
     if (inputContextRef.current && inputContextRef.current.state !== 'closed') {
       try { await inputContextRef.current.close(); } catch(e) {}
       inputContextRef.current = null;
@@ -257,7 +263,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             processorNodeRef.current = processor;
 
             processor.onaudioprocess = (e) => {
-              // Critical check to prevent "Network Error" due to sending on closed socket
+              // Critical check to prevent processing if intentionally disconnected
               if (!isConnectedRef.current) return;
 
               const inputData = e.inputBuffer.getChannelData(0);
@@ -271,8 +277,16 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
               
               sessionPromise.then(session => {
                   if (isConnectedRef.current) {
-                      session.sendRealtimeInput({ media: blob });
+                      try {
+                          session.sendRealtimeInput({ media: blob });
+                      } catch (err) {
+                          // Prevent infinite error loops if socket dies unexpectedly
+                          console.warn("Realtime Input Send Failed - Closing Loop", err);
+                          isConnectedRef.current = false;
+                      }
                   }
+              }).catch(err => {
+                  console.debug("Session promise error during audio streaming", err);
               });
             };
 
