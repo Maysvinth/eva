@@ -162,7 +162,10 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   }, [stopAllAudio]);
 
   const connect = useCallback(async () => {
-    // Clear any pending reconnect timers to prevent double connection
+    // Prevent double-connect
+    if (isConnectedRef.current || connectionState === 'connecting') return;
+
+    // Clear any pending reconnect timers
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
 
     try {
@@ -207,18 +210,16 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
            If you hear the user say "${stopWord}" (or a close variation), STOP speaking immediately. It is an emergency stop command.`
         : "";
 
-      // Updated System Instruction for Native Search Grounding
+      // Updated System Instruction (Removed mention of googleSearch tool usage to avoid confusion in model)
       const baseInstruction = isRemoteMode 
         ? `You are a REMOTE CONTROLLER. 
            1. Answer general Qs verbally. 
            2. Use 'executeRemoteAction' for websites/apps/music/video.
-           3. Use 'controlMedia' for play/pause/stop/next/previous.
-           4. You have access to real-time information via the 'googleSearch' tool. Use it to find answers to questions about current events, news, or specific facts. Summarize the findings clearly and directly for the user.${wakeWordInstruction}${stopWordInstruction}`
+           3. Use 'controlMedia' for play/pause/stop/next/previous.${wakeWordInstruction}${stopWordInstruction}`
         : `You are a helpful AI. 
            1. Use 'executeRemoteAction' for websites/apps.
            2. Use 'controlMedia' for play/pause/stop/next/previous.
-           3. You possess encyclopedic knowledge of Anime, Manga, and Video Games. 
-           4. Use the 'googleSearch' tool to verify current information (release dates, patch notes, events) or answer questions about real-time news. Provide summarized, direct answers derived from the search results.${wakeWordInstruction}${stopWordInstruction}`;
+           3. You possess encyclopedic knowledge of Anime, Manga, and Video Games.${wakeWordInstruction}${stopWordInstruction}`;
       
       const finalSystemInstruction = `${baseInstruction} Voice: ${character.voiceName}. ${character.systemInstruction}`;
 
@@ -236,8 +237,9 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           inputAudioTranscription: {}, 
           outputAudioTranscription: {},
           tools: [
-              { functionDeclarations: [timeTool, laptopControlTool, mediaControlTool] },
-              { googleSearch: {} } // Enable Native Google Search Grounding
+              // NOTE: Native GoogleSearch CANNOT be mixed with other tools in current API version.
+              // Prioritizing Function Calling for Device Control features.
+              { functionDeclarations: [timeTool, laptopControlTool, mediaControlTool] }
           ]
         }
       };
@@ -281,12 +283,15 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                           session.sendRealtimeInput({ media: blob });
                       } catch (err) {
                           // Prevent infinite error loops if socket dies unexpectedly
-                          console.warn("Realtime Input Send Failed - Closing Loop", err);
-                          isConnectedRef.current = false;
+                          // console.warn("Realtime Input Send Failed - Closing Loop", err); 
+                          // Don't close immediately on one fail, but stop loop if widespread
+                          if (String(err).includes("CLOSING") || String(err).includes("CLOSED")) {
+                              isConnectedRef.current = false;
+                          }
                       }
                   }
               }).catch(err => {
-                  console.debug("Session promise error during audio streaming", err);
+                  // console.debug("Session promise error during audio streaming", err);
               });
             };
 
@@ -313,20 +318,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     // Force interruption locally
                     stopAllAudio();
                     if (outputContextRef.current) nextStartTimeRef.current = outputContextRef.current.currentTime;
-                    // Note: We don't return here, we let the transcription process for history, 
-                    // but the audio is killed immediately.
                 }
-            }
-
-            // Grounding Metadata Extraction from Native Tool
-            if (serverContent?.modelTurn?.groundingMetadata?.groundingChunks) {
-                serverContent.modelTurn.groundingMetadata.groundingChunks.forEach((chunk: any) => {
-                    if (chunk.web) {
-                        if (!currentSources.some(s => s.uri === chunk.web.uri)) {
-                            currentSources.push({ title: chunk.web.title, uri: chunk.web.uri });
-                        }
-                    }
-                });
             }
 
             if (serverContent?.inputTranscription?.text) {
@@ -412,9 +404,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                 for (const fc of msg.toolCall.functionCalls) {
                     let result: any = {};
                     
-                    // Native GoogleSearch will NOT trigger this. Only custom functions trigger this.
-                    // Immediate execution logic to prevent "Spinning"
-
                     if (fc.name === 'getCurrentTime') {
                         result = { currentTime: new Date().toLocaleTimeString() };
                     } 
@@ -434,8 +423,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                              if (args.command === 'next') key = 'MediaTrackNext';
                              if (args.command === 'previous') key = 'MediaTrackPrevious';
                              if (args.command === 'stop') key = 'MediaStop';
-                             if (args.command === 'seek_forward') key = 'ArrowRight'; // Standard web seek
-                             if (args.command === 'seek_backward') key = 'ArrowLeft'; // Standard web seek
+                             if (args.command === 'seek_forward') key = 'ArrowRight'; 
+                             if (args.command === 'seek_backward') key = 'ArrowLeft'; 
 
                              try { document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true })); } catch(e) {}
                              result = { status: 'executed', command: args.command };
@@ -447,7 +436,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                             sendRemoteCommand(args.action, args.query);
                             result = { status: 'sent' };
                         } else {
-                            // Defer window.open to allow toolResponse to be sent first
                             setTimeout(() => {
                                 if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
                                 else if (args.action === 'play_music') window.open(`https://music.youtube.com/search?q=${encodeURIComponent(args.query)}`, '_blank');
@@ -458,7 +446,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         }
                     } 
 
-                    // Send response IMMEDIATELY
                     sessionPromise.then(session => session.sendToolResponse({
                         functionResponses: { id: fc.id, name: fc.name, response: result }
                     }));
@@ -472,7 +459,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             activeConnectionParamsRef.current = null;
             currentSessionRef.current = null;
 
-            // Robust Auto-Reconnect: Only if not already connecting and intentional
             if (autoReconnect && !error?.includes("Permission") && !isReconnectingRef.current) {
                 console.log("Auto-reconnecting in 2s...");
                 autoReconnectTimerRef.current = setTimeout(() => {
@@ -488,14 +474,10 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             else if (typeof err === 'object') errorMessage = JSON.stringify(err);
             else errorMessage = String(err);
             
-            // Suppress generic "Network error" if it's transient, allow onclose to handle reconnect
             if (errorMessage.includes("Network error") || errorMessage.includes("Failed to fetch")) {
-                console.warn("Transient Network Error detected. Waiting for auto-reconnect.");
-                // We do NOT set error state here to avoid UI red flash, simply let onclose trigger
                 return; 
             }
             
-            // Fix [object ErrorEvent]
             if (errorMessage === "{}" || errorMessage.includes("[object ErrorEvent]")) {
                 errorMessage = "Connection Failed (Network or Firewall)";
             }
@@ -515,9 +497,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             activeConnectionParamsRef.current = null;
             currentSessionRef.current = null;
 
-            // Auto-Reconnect Logic for non-auth errors
             if (autoReconnect && !errorMessage.includes("Permission") && !errorMessage.includes("403")) {
-                console.log("Auto-reconnecting due to error in 2s...");
                 autoReconnectTimerRef.current = setTimeout(() => {
                     connect();
                 }, 2000);
@@ -540,13 +520,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
       setConnectionState('error');
       isReconnectingRef.current = false;
     }
-  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord]); 
+  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState]); 
 
   // Detect character changes
   useEffect(() => {
     if (connectionState === 'connected' && activeConnectionParamsRef.current && !isReconnectingRef.current) {
         const active = activeConnectionParamsRef.current;
-        // Reconnect if character OR wake word OR stop word changes
         if (active.id !== character.id || active.voiceName !== character.voiceName || active.wakeWord !== wakeWord || active.stopWord !== stopWord) {
             isReconnectingRef.current = true;
             disconnect().then(() => {
