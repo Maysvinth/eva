@@ -166,6 +166,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     if (isConnectedRef.current || connectionState === 'connecting') return;
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
 
+    // Explicit check for undefined or empty API key to provide UI feedback
+    if (!process.env.API_KEY) {
+      setError("API Key Missing");
+      setConnectionState('error');
+      return;
+    }
+
     setConnectionState('connecting');
     setError(null);
     activeConnectionParamsRef.current = { id: character.id, voiceName: character.voiceName, wakeWord: wakeWord, stopWord: stopWord };
@@ -217,7 +224,9 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           }
         };
 
+        // Initialize with process.env.API_KEY directly as per guidelines
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        
         const session = await ai.live.connect({
             model: config.model,
             config: config.config,
