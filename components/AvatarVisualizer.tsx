@@ -8,7 +8,7 @@ interface AvatarVisualizerProps {
 
 const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ volumeRef, color, isActive }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number | null>(null);
   const ringsRef = useRef<any[]>([]);
   
   // Convert Tailwind color name to hex roughly for canvas
@@ -113,9 +113,9 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ volumeRef, color, i
     render();
 
     return () => {
-      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
-  }, [color, isActive, volumeRef]); // Removed volume from dependency
+  }, [color, isActive, volumeRef]); 
 
   return (
     <canvas 

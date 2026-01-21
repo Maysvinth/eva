@@ -362,7 +362,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     }
                     
                     // --- TOOLS ---
-                    if (msg.toolCall) {
+                    if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             let result: any = { status: 'ok' };
                             
