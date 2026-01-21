@@ -39,7 +39,7 @@ const laptopControlTool: FunctionDeclaration = {
     type: Type.OBJECT,
     properties: {
       action: {
-        type: Type.STRING,
+        type: Type.STRING, 
         enum: ['open_url', 'play_music', 'play_video', 'open_app']
       },
       query: { type: Type.STRING }
@@ -81,6 +81,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   
   // Standby State (Muted but listening for wake word)
   const [isStandby, setIsStandby] = useState(false);
+  const isStandbyRef = useRef(false);
 
   const inputContextRef = useRef<AudioContext | null>(null);
   const outputContextRef = useRef<AudioContext | null>(null);
@@ -99,6 +100,11 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const standbyCheckIntervalRef = useRef<any>(null);
   const transcriptBufferRef = useRef<string>("");
 
+  // Sync state with ref for access in callbacks
+  useEffect(() => {
+    isStandbyRef.current = isStandby;
+  }, [isStandby]);
+
   const stopAllAudio = useCallback(() => {
     activeSourcesRef.current.forEach(source => {
       try { source.stop(); } catch (e) {}
@@ -114,12 +120,14 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const enterStandby = useCallback(() => {
     console.log("Entering Standby Mode (Muted)");
     setIsStandby(true);
+    isStandbyRef.current = true;
     stopAllAudio();
   }, [stopAllAudio]);
 
   const exitStandby = useCallback(() => {
     console.log("Wake Word Detected - Exiting Standby (Unmuted)");
     setIsStandby(false);
+    isStandbyRef.current = false;
     lastSpeechTimeRef.current = Date.now();
     if (outputContextRef.current) {
         nextStartTimeRef.current = outputContextRef.current.currentTime;
@@ -166,6 +174,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     
     setConnectionState('disconnected');
     setIsStandby(false);
+    isStandbyRef.current = false;
     nextStartTimeRef.current = 0;
     setStreamingUserText("");
     setStreamingModelText("");
@@ -229,7 +238,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             responseModalities: [Modality.AUDIO],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: safeVoice } } },
             systemInstruction: finalSystemInstruction,
-            // Optimization: Disable thinking for lower latency
             thinkingConfig: { thinkingBudget: 0 }, 
             inputAudioTranscription: {}, 
             outputAudioTranscription: {},
@@ -258,8 +266,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     // 1-Minute Auto-Standby Timer
                     standbyCheckIntervalRef.current = setInterval(() => {
                         const timeSinceSpeech = Date.now() - lastSpeechTimeRef.current;
-                        if (timeSinceSpeech > 60000 && isConnectedRef.current && !isStandby) { 
-                            setIsStandby(true);
+                        if (timeSinceSpeech > 60000 && isConnectedRef.current && !isStandbyRef.current) { 
+                            enterStandby();
                             console.log("Auto-Standby: 60s Silence Detected");
                         }
                     }, 5000);
@@ -269,14 +277,11 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
                       const inputData = e.inputBuffer.getChannelData(0);
                       
-                      // NOISE GATE: Ignore silence / background hiss
-                      // Threshold 0.02 filters out fans/breathing but catches speech
                       if (!hasSpeech(inputData, 0.02)) {
-                          onVisualizerUpdate(0); // Zero out visualizer
+                          onVisualizerUpdate(0); 
                           return; 
                       }
 
-                      // Update activity timer only if audio is loud enough
                       if (hasSpeech(inputData, 0.05)) {
                           lastSpeechTimeRef.current = Date.now();
                       }
@@ -318,31 +323,30 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       const text = serverContent.inputTranscription.text;
                       setStreamingUserText(prev => prev + text);
                       
-                      // Buffer transcript for robust matching
                       transcriptBufferRef.current += text;
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
 
                       // Wake Word Logic (Unmute)
                       if (wakeWord && bufferLower.includes(wakeWord.toLowerCase())) {
-                          if (isStandby) {
+                          if (isStandbyRef.current) {
                               exitStandby();
-                              transcriptBufferRef.current = ""; // Reset to prevent re-trigger
+                              transcriptBufferRef.current = ""; 
                           }
                       }
 
                       // Stop Word Logic (Mute)
                       if ((stopWord && bufferLower.includes(stopWord.toLowerCase())) || bufferLower.includes("thank you")) {
-                          if (!isStandby) {
+                          if (!isStandbyRef.current) {
                               enterStandby();
-                              transcriptBufferRef.current = ""; // Reset to prevent re-trigger
+                              transcriptBufferRef.current = ""; 
                           }
                       }
                     }
 
                     // --- OUTPUT PROCESSING (Model) ---
                     // If in Standby, IGNORE model audio output
-                    if (isStandby) {
-                        // Drop audio packets to effectively mute
+                    // Use Ref to check latest state instantly
+                    if (isStandbyRef.current) {
                         return;
                     } 
                     
@@ -362,7 +366,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                             activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
                         };
 
-                        // Output Visualizer
                         const bufferLength = analyser.frequencyBinCount;
                         const dataArray = new Uint8Array(bufferLength);
                         const updateVisualizer = () => {
@@ -376,7 +379,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         requestAnimationFrame(updateVisualizer);
 
                         const currentTime = outputContextRef.current.currentTime;
-                        // Tighten the scheduling loop to reduce latency
                         if (nextStartTimeRef.current < currentTime) {
                             nextStartTimeRef.current = currentTime;
                         }
@@ -460,6 +462,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     isConnectedRef.current = false;
                     currentSessionRef.current = null;
                     setIsStandby(false);
+                    isStandbyRef.current = false;
                     if (autoReconnect && !error?.includes("Permission") && !isReconnectingRef.current) {
                         autoReconnectTimerRef.current = setTimeout(() => connect(), 2000);
                     }
@@ -481,7 +484,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         setError(e.message);
         setConnectionState('error');
     }
-  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isStandby]); 
+  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby]); // Added enterStandby and exitStandby to deps
 
   // Detect character changes
   useEffect(() => {
