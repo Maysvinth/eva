@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Peer, DataConnection } from 'peerjs';
 import { DeviceRole, RemoteCommandPacket } from '../types';
 
@@ -6,127 +6,45 @@ function generateShortId() {
   return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
 
-// Map common app names to URI schemes or Web Fallbacks
+// Map common app names to URI schemes
+// This allows the web app to launch desktop applications via Deep Linking
 const APP_PROTOCOL_MAP: Record<string, string> = {
-  // --- COMMUNICATION & SOCIAL ---
-  'discord': 'discord://',
-  'slack': 'slack://',
-  'skype': 'skype:',
+  // --- MESSAGING & SOCIAL ---
+  'discord': 'discord://', 
+  'slack': 'slack://', 
+  'skype': 'skype:', 
   'teams': 'msteams:',
-  'telegram': 'tg://',
-  'whatsapp': 'whatsapp://',
-  'messenger': 'messenger://',
-  'zoom': 'zoommtg:',
+  'whatsapp': 'whatsapp://', 
+  'telegram': 'tg://', 
+  'messenger': 'fb-messenger://',
   'signal': 'signal://',
-  'line': 'line://',
-  'wechat': 'weixin://',
-  'viber': 'viber://',
-  'twitter': 'https://twitter.com',
-  'x': 'https://x.com',
-  'instagram': 'https://instagram.com',
-  'facebook': 'https://facebook.com',
-  'linkedin': 'https://linkedin.com',
-  'reddit': 'https://reddit.com',
-  'tiktok': 'https://tiktok.com',
-  'pinterest': 'https://pinterest.com',
-  'snapchat': 'https://snapchat.com',
-  'tumblr': 'https://tumblr.com',
-
-  // --- MEDIA & ENTERTAINMENT ---
-  'spotify': 'spotify:',
-  'itunes': 'itms:',
-  'apple music': 'music:',
-  'music': 'music:', 
-  'steam': 'steam://',
-  'epic': 'com.epicgames.launcher://',
-  'twitch': 'twitch://',
-  'vlc': 'vlc://',
-  'netflix': 'https://netflix.com',
-  'youtube': 'https://youtube.com',
-  'hulu': 'https://hulu.com',
-  'prime video': 'https://amazon.com/video',
-  'disney': 'https://disneyplus.com',
-  'disney+': 'https://disneyplus.com',
-  'hbomax': 'https://max.com',
-  'max': 'https://max.com',
-  'crunchyroll': 'https://crunchyroll.com',
-  'imdb': 'https://imdb.com',
+  'zoom': 'zoommtg:', 
   
-  // --- BROWSERS ---
-  'chrome': 'https://google.com',
-  'google chrome': 'https://google.com',
-  'firefox': 'https://mozilla.org',
-  'edge': 'https://microsoft.com/edge',
-  'safari': 'https://apple.com/safari',
-  'opera': 'https://opera.com',
-  'brave': 'https://brave.com',
-  'vivaldi': 'https://vivaldi.com',
-
-  // --- DEVELOPMENT & PRODUCTIVITY ---
-  'vscode': 'vscode://',
-  'visual studio code': 'vscode://',
-  'code': 'vscode://',
-  'visual studio': 'visualstudio:',
-  'intellij': 'idea://',
-  'notion': 'notion://',
-  'obsidian': 'obsidian://',
-  'trello': 'trello://',
+  // --- MEDIA ---
+  'spotify': 'spotify:', 
+  'itunes': 'music:',
+  'steam': 'steam://',
+  'vlc': 'vlc://',
+  
+  // --- PRODUCTIVITY & TOOLS ---
+  'vscode': 'vscode://', 
+  'code': 'vscode://', 
+  'notion': 'notion://', 
   'figma': 'figma://',
-  'canva': 'https://canva.com',
-  'postman': 'postman://',
-  'docker': 'docker://',
-  'github': 'https://github.com',
-  'gitlab': 'https://gitlab.com',
-  'stackoverflow': 'https://stackoverflow.com',
-  'chatgpt': 'https://chatgpt.com',
-  'claude': 'https://claude.ai',
-  'gemini': 'https://gemini.google.com',
-  'word': 'https://office.com/launch/word',
-  'ms word': 'https://office.com/launch/word',
-  'excel': 'https://office.com/launch/excel',
-  'ms excel': 'https://office.com/launch/excel',
-  'powerpoint': 'https://office.com/launch/powerpoint',
-  'ms powerpoint': 'https://office.com/launch/powerpoint',
-  'docs': 'https://docs.google.com',
-  'sheets': 'https://docs.google.com/spreadsheets',
-  'slides': 'https://docs.google.com/presentation',
-  'drive': 'https://drive.google.com',
-  'onedrive': 'https://onedrive.live.com',
-  'dropbox': 'https://dropbox.com',
+  'trello': 'trello://',
+  'obsidian': 'obsidian://',
   'evernote': 'evernote://',
-
-  // --- SYSTEM / MICROSOFT / UTILITIES ---
+  
+  // --- SYSTEM / UTILITIES ---
   'calculator': 'calculator:', 
-  'calc': 'calculator:',
-  'settings': 'ms-settings:', 
-  'store': 'ms-windows-store:',
-  'photos': 'ms-photos:',
-  'camera': 'microsoft.windows.camera:',
   'mail': 'mailto:',
-  'email': 'mailto:',
-  'outlook': 'outlookcal:',
-  'calendar': 'outlookcal:',
-  'maps': 'bingmaps:',
-  'google maps': 'https://maps.google.com',
-  'clock': 'ms-clock:',
-  'alarm': 'ms-clock:',
+  'calendar': 'webcal:',
+  'maps': 'maps:',
+  'settings': 'ms-settings:', // Windows Settings
+  'store': 'ms-windows-store:', // Windows Store
   'xbox': 'xbox:',
-  'terminal': 'wt:',
-  'command prompt': 'cmd:',
-  'cmd': 'cmd:', 
-  'powershell': 'powershell:',
-  'paint': 'ms-paint:',
-  'notepad': 'notepad:',
-  'explorer': 'explorer:',
-  'files': 'explorer:',
-  'file explorer': 'explorer:',
-  'finder': 'file:', // macOS fallback attempt (often restricted)
-  'screenshot': 'ms-screenclip:',
-  'snip': 'ms-screenclip:',
-  'task manager': 'taskmgr:',
-  'control panel': 'control:',
-  'weather': 'bingweather:',
-  'news': 'bingnews:',
+  'onenote': 'onenote:',
+  'terminal': 'wt:', // Windows Terminal
 };
 
 export const useDevicePairing = () => {
@@ -134,20 +52,15 @@ export const useDevicePairing = () => {
   const [peerId, setPeerId] = useState<string>('');
   const [pairingCode, setPairingCode] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
-  const [connectedPeerName, setConnectedPeerName] = useState<string>('');
   
   const peerRef = useRef<Peer | null>(null);
   const connRef = useRef<DataConnection | null>(null);
 
-  // Initialize Host (Laptop)
   const initializeHost = useCallback(() => {
     if (peerRef.current) peerRef.current.destroy();
-
     const code = generateShortId();
     setPairingCode(code);
-    const fullId = `eva-app-host-${code}`;
-
-    const peer = new Peer(fullId);
+    const peer = new Peer(`eva-app-host-${code}`);
     peerRef.current = peer;
 
     peer.on('open', (id) => {
@@ -159,68 +72,59 @@ export const useDevicePairing = () => {
     peer.on('connection', (conn) => {
       connRef.current = conn;
       setConnectionStatus('connected');
-      setConnectedPeerName(conn.peer);
 
-      // Handle incoming data
       conn.on('data', (data: any) => {
         const packet = data as RemoteCommandPacket;
         if (packet.type === 'COMMAND') {
            const { action, query } = packet.payload;
-           // Execute locally on Host
-           if (action === 'open_url') {
+           
+           try {
+             if (action === 'open_url') {
                 let url = query.trim();
-                const hasProtocol = /^[a-z][a-z0-9+.-]*:/i.test(url);
-                if (!hasProtocol) url = 'https://' + url;
+                if (!/^[a-z]+:/i.test(url)) url = 'https://' + url;
                 window.open(url, '_blank');
-           } else if (action === 'play_music') {
-                const lowerQuery = query.toLowerCase();
-                // SMART MUSIC HANDLING
-                if (lowerQuery.includes('spotify')) {
+             } 
+             else if (action === 'play_music') {
+                if (query.toLowerCase().includes('spotify')) {
                     const cleanSong = query.replace(/play|on|spotify/gi, '').trim();
-                    window.open(`spotify:search:${encodeURIComponent(cleanSong)}`, '_self');
+                    window.location.assign(`spotify:search:${encodeURIComponent(cleanSong)}`);
                 } else {
                     window.open(`https://music.youtube.com/search?q=${encodeURIComponent(query)}`, '_blank');
                 }
-           } else if (action === 'play_video') {
+             } 
+             else if (action === 'play_video') {
                 window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`, '_blank');
-           } else if (action === 'open_app') {
-                const cleanQuery = query.toLowerCase()
-                  .replace(/^(open|launch|start|run|play)\s+/i, '')
-                  .replace(/^(the|my|a|an)\s+/i, '')
-                  .trim();
-                
+             } 
+             else if (action === 'open_app') {
+                const cleanQuery = query.toLowerCase().replace(/^(open|launch|run|check|read|go to)\s+/i, '').trim();
                 let target = APP_PROTOCOL_MAP[cleanQuery];
-                if (!target) {
-                    const firstWord = cleanQuery.split(' ')[0];
-                    target = APP_PROTOCOL_MAP[firstWord];
-                }
                 
-                if (target) {
-                    const targetFrame = target.startsWith('http') ? '_blank' : '_self';
-                    window.open(target, targetFrame);
-                } else {
-                    if (cleanQuery.includes('.') && !cleanQuery.includes(' ')) {
-                        let url = cleanQuery;
-                        if (!url.startsWith('http')) url = 'https://' + url;
-                        window.open(url, '_blank');
-                    } else {
-                        window.open(`https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`, '_blank');
-                    }
+                // Fuzzy match for partial names (e.g., "messages" -> "fb-messenger" or "imessage"?)
+                // Just checking keys
+                if (!target) {
+                    const key = Object.keys(APP_PROTOCOL_MAP).find(k => cleanQuery.includes(k) || k.includes(cleanQuery));
+                    if (key) target = APP_PROTOCOL_MAP[key];
                 }
-           } else if (action === 'media_control') {
-                // Expanded Media Control
+
+                if (target) {
+                    // Critical: location.assign is needed for Protocol Handlers to work without user interaction on some browsers
+                    window.location.assign(target);
+                } else {
+                    // Fallback to Google Search if app not found
+                    window.open(`https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`, '_blank');
+                }
+             } 
+             else if (action === 'media_control') {
                 let key = 'MediaPlayPause';
                 if (query === 'next') key = 'MediaTrackNext';
                 else if (query === 'previous') key = 'MediaTrackPrevious';
                 else if (query === 'stop') key = 'MediaStop';
-                else if (query === 'seek_forward') key = 'ArrowRight'; // Web Standard
-                else if (query === 'seek_backward') key = 'ArrowLeft'; // Web Standard
-                
-                try {
-                    document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true }));
-                } catch (e) {
-                    console.warn("Media control failed", e);
-                }
+                else if (query === 'seek_forward') key = 'ArrowRight'; 
+                else if (query === 'seek_backward') key = 'ArrowLeft'; 
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true }));
+             }
+           } catch(e) {
+               console.error("Remote execution failed", e);
            }
         }
       });
@@ -232,35 +136,25 @@ export const useDevicePairing = () => {
     });
   }, []);
 
-  // Initialize Remote (Phone)
   const connectToHost = useCallback((targetCode: string) => {
     if (peerRef.current) peerRef.current.destroy();
-
     const peer = new Peer(); 
     peerRef.current = peer;
 
-    peer.on('open', (id) => {
+    peer.on('open', () => {
       setRole('remote');
       setConnectionStatus('connecting');
-      
-      const targetId = `eva-app-host-${targetCode.toUpperCase()}`;
-      const conn = peer.connect(targetId);
+      const conn = peer.connect(`eva-app-host-${targetCode.toUpperCase()}`);
       
       conn.on('open', () => {
         connRef.current = conn;
         setConnectionStatus('connected');
-        setConnectedPeerName(targetId);
       });
-
       conn.on('close', () => {
         setConnectionStatus('disconnected');
         connRef.current = null;
       });
-      
-      conn.on('error', (err) => {
-          console.error("Connection Error", err);
-          setConnectionStatus('disconnected');
-      });
+      conn.on('error', () => setConnectionStatus('disconnected'));
     });
   }, []);
 
@@ -284,13 +178,5 @@ export const useDevicePairing = () => {
      setConnectionStatus('disconnected');
   }, []);
 
-  return {
-    role,
-    pairingCode,
-    connectionStatus,
-    initializeHost,
-    connectToHost,
-    sendCommand,
-    disconnectP2P
-  };
+  return { role, pairingCode, connectionStatus, initializeHost, connectToHost, sendCommand, disconnectP2P };
 };

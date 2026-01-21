@@ -47,9 +47,6 @@ export function pcmToGeminiBlob(data: Float32Array, sampleRate: number): Blob {
   for (let i = 0; i < l; i++) {
     // Fast clamp
     const s = data[i];
-    // This branchless clamp is slightly faster in some JS engines
-    // but the Math.max/min is heavily optimized in V8.
-    // Keeping simple Math.max/min for readability/safety but ensuring type efficiency.
     const clamped = s < -1 ? -1 : s > 1 ? 1 : s;
     int16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF;
   }
@@ -77,4 +74,14 @@ export async function decodeAudioData(
     }
   }
   return buffer;
+}
+
+// NOISE GATE CALCULATOR
+export function hasSpeech(buffer: Float32Array, threshold: number = 0.01): boolean {
+    let sum = 0;
+    for (let i = 0; i < buffer.length; i++) {
+        sum += buffer[i] * buffer[i];
+    }
+    const rms = Math.sqrt(sum / buffer.length);
+    return rms > threshold;
 }
