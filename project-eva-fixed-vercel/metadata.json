@@ -1,7 +1,0 @@
-{
-  "name": "Project EVA - Web Edition",
-  "description": "A futuristic AI assistant with voice interaction, distinct personalities, and real-time audio visualization using Gemini Live API.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}
