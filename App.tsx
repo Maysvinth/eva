@@ -44,8 +44,10 @@ const App: React.FC = () => {
   const volumeRef = useRef<number>(0);
 
   useEffect(() => {
-    // Check environment variable injected by Vite (now guaranteed to be defined as string)
-    if (!process.env.API_KEY) {
+    // The API key must be obtained exclusively from the environment variable process.env.API_KEY
+    const key = process.env.API_KEY;
+
+    if (!key) {
         console.error("Critical: API Key not found in environment variables.");
         setApiKeyMissing(true);
     }
