@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
-import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, downsampleTo16k, hasSpeech } from '../utils/audio';
+import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, downsampleTo16k } from '../utils/audio';
 import { CharacterProfile, ConnectionState, Message } from '../types';
 
 // Supported Voices Map
@@ -184,7 +184,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     if (isConnectedRef.current || connectionState === 'connecting') return;
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
 
-    // Retrieve API Key: Must be obtained from process.env.API_KEY
+    // Retrieve API Key
     const apiKey = process.env.API_KEY;
 
     if (!apiKey) {
@@ -238,7 +238,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             responseModalities: [Modality.AUDIO],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: safeVoice } } },
             systemInstruction: finalSystemInstruction,
-            thinkingConfig: { thinkingBudget: 0 }, 
             inputAudioTranscription: {}, 
             outputAudioTranscription: {},
             tools: [{ functionDeclarations: [timeTool, laptopControlTool, mediaControlTool, communicationTool] }]
@@ -277,18 +276,19 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
                       const inputData = e.inputBuffer.getChannelData(0);
                       
-                      if (!hasSpeech(inputData, 0.02)) {
-                          onVisualizerUpdate(0); 
-                          return; 
-                      }
-
-                      if (hasSpeech(inputData, 0.05)) {
-                          lastSpeechTimeRef.current = Date.now();
-                      }
-
+                      // Calculate volume for visualizer
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=20) sum += Math.abs(inputData[i]); 
-                      onVisualizerUpdate((sum / (inputData.length/20)) * 3); 
+                      const vol = (sum / (inputData.length/20)) * 3;
+                      
+                      // CRITICAL FIX: Do not block data sending based on volume.
+                      // Send EVERYTHING to the model so it can detect the wake word even if quiet.
+                      onVisualizerUpdate(vol); 
+                      
+                      // Update activity timer only if audio is reasonably loud to prevent background noise from keeping it alive
+                      if (vol > 0.05) {
+                          lastSpeechTimeRef.current = Date.now();
+                      }
 
                       const downsampledData = downsampleTo16k(inputData, audioCtxInput.sampleRate);
                       const blob = pcmToGeminiBlob(downsampledData, 16000);
@@ -315,6 +315,9 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     }
                     
                     if (serverContent?.turnComplete) {
+                        // Reset buffer on turn complete?
+                        // Better to keep a rolling buffer or reset intelligently.
+                        // Resetting here is fine as long as wake word isn't split across turns (unlikely for short phrases).
                         transcriptBufferRef.current = "";
                     }
 
@@ -323,7 +326,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       const text = serverContent.inputTranscription.text;
                       setStreamingUserText(prev => prev + text);
                       
-                      transcriptBufferRef.current += text;
+                      // Use space to prevent concatenation issues
+                      transcriptBufferRef.current += (" " + text);
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
 
                       // Wake Word Logic (Unmute)
@@ -345,7 +349,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
                     // --- OUTPUT PROCESSING (Model) ---
                     // If in Standby, IGNORE model audio output
-                    // Use Ref to check latest state instantly
                     if (isStandbyRef.current) {
                         return;
                     } 
@@ -484,7 +487,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         setError(e.message);
         setConnectionState('error');
     }
-  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby]); // Added enterStandby and exitStandby to deps
+  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby]);
 
   // Detect character changes
   useEffect(() => {
