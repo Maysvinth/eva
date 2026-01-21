@@ -166,14 +166,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     if (isConnectedRef.current || connectionState === 'connecting') return;
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
 
-    const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
-
-    if (!apiKey) {
-      setError("API Key Missing");
-      setConnectionState('error');
-      return;
-    }
-
     setConnectionState('connecting');
     setError(null);
     activeConnectionParamsRef.current = { id: character.id, voiceName: character.voiceName, wakeWord: wakeWord, stopWord: stopWord };
@@ -225,7 +217,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           }
         };
 
-        const ai = new GoogleGenAI({ apiKey });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const session = await ai.live.connect({
             model: config.model,
             config: config.config,
