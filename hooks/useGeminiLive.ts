@@ -97,25 +97,33 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const autoReconnectTimerRef = useRef<any>(null);
   const lastSpeechTimeRef = useRef<number>(Date.now());
   const standbyCheckIntervalRef = useRef<any>(null);
+  const transcriptBufferRef = useRef<string>("");
 
   const stopAllAudio = useCallback(() => {
     activeSourcesRef.current.forEach(source => {
       try { source.stop(); } catch (e) {}
     });
     activeSourcesRef.current = [];
+    if (outputContextRef.current) {
+        // Reset timing to now to prevent lag when resuming
+        nextStartTimeRef.current = outputContextRef.current.currentTime;
+    }
   }, []);
 
   // Enter Standby Mode (Muted)
   const enterStandby = useCallback(() => {
-    console.log("Entering Standby Mode");
+    console.log("Entering Standby Mode (Muted)");
     setIsStandby(true);
     stopAllAudio();
   }, [stopAllAudio]);
 
   const exitStandby = useCallback(() => {
-    console.log("Wake Word Detected - Exiting Standby");
+    console.log("Wake Word Detected - Exiting Standby (Unmuted)");
     setIsStandby(false);
     lastSpeechTimeRef.current = Date.now();
+    if (outputContextRef.current) {
+        nextStartTimeRef.current = outputContextRef.current.currentTime;
+    }
   }, []);
 
   const disconnect = useCallback(async () => {
@@ -131,6 +139,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
     stopAllAudio();
     activeConnectionParamsRef.current = null;
+    transcriptBufferRef.current = "";
     
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -220,6 +229,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             responseModalities: [Modality.AUDIO],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: safeVoice } } },
             systemInstruction: finalSystemInstruction,
+            // Optimization: Disable thinking for lower latency
+            thinkingConfig: { thinkingBudget: 0 }, 
             inputAudioTranscription: {}, 
             outputAudioTranscription: {},
             tools: [{ functionDeclarations: [timeTool, laptopControlTool, mediaControlTool, communicationTool] }]
@@ -236,6 +247,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     isConnectedRef.current = true;
                     lastSpeechTimeRef.current = Date.now();
                     nextStartTimeRef.current = audioCtxOutput.currentTime;
+                    transcriptBufferRef.current = "";
                     
                     const source = audioCtxInput.createMediaStreamSource(stream);
                     const processor = audioCtxInput.createScriptProcessor(512, 1, 1);
@@ -246,14 +258,9 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     // 1-Minute Auto-Standby Timer
                     standbyCheckIntervalRef.current = setInterval(() => {
                         const timeSinceSpeech = Date.now() - lastSpeechTimeRef.current;
-                        if (timeSinceSpeech > 60000 && isConnectedRef.current) { // 60 seconds
-                            setIsStandby(prev => {
-                                if (!prev) {
-                                    console.log("Auto-Standby: 60s Silence Detected");
-                                    return true;
-                                }
-                                return prev;
-                            });
+                        if (timeSinceSpeech > 60000 && isConnectedRef.current && !isStandby) { 
+                            setIsStandby(true);
+                            console.log("Auto-Standby: 60s Silence Detected");
                         }
                     }, 5000);
 
@@ -269,8 +276,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                           return; 
                       }
 
-                      // If we are in standby, we update lastSpeechTime only if wake word is detected?
-                      // No, we rely on transcript. But we reset timer on any loud noise to prevent premature sleep if actively talking.
+                      // Update activity timer only if audio is loud enough
                       if (hasSpeech(inputData, 0.05)) {
                           lastSpeechTimeRef.current = Date.now();
                       }
@@ -302,64 +308,81 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         if (outputContextRef.current) nextStartTimeRef.current = outputContextRef.current.currentTime;
                         return; 
                     }
+                    
+                    if (serverContent?.turnComplete) {
+                        transcriptBufferRef.current = "";
+                    }
 
                     // --- INPUT PROCESSING (User) ---
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
                       setStreamingUserText(prev => prev + text);
                       
-                      // Wake Word Logic
-                      if (wakeWord && text.toLowerCase().includes(wakeWord.toLowerCase())) {
-                          exitStandby();
+                      // Buffer transcript for robust matching
+                      transcriptBufferRef.current += text;
+                      const bufferLower = transcriptBufferRef.current.toLowerCase();
+
+                      // Wake Word Logic (Unmute)
+                      if (wakeWord && bufferLower.includes(wakeWord.toLowerCase())) {
+                          if (isStandby) {
+                              exitStandby();
+                              transcriptBufferRef.current = ""; // Reset to prevent re-trigger
+                          }
                       }
 
-                      // Standby Triggers (Thank you / Stop Word)
-                      if ((stopWord && text.toLowerCase().includes(stopWord.toLowerCase())) || text.toLowerCase().includes("thank you")) {
-                          enterStandby();
+                      // Stop Word Logic (Mute)
+                      if ((stopWord && bufferLower.includes(stopWord.toLowerCase())) || bufferLower.includes("thank you")) {
+                          if (!isStandby) {
+                              enterStandby();
+                              transcriptBufferRef.current = ""; // Reset to prevent re-trigger
+                          }
                       }
                     }
 
                     // --- OUTPUT PROCESSING (Model) ---
                     // If in Standby, IGNORE model audio output
                     if (isStandby) {
-                        // We still process text for logs, but we do NOT play audio
-                        // UNLESS the model says something indicating it woke up (rare if prompt is good)
-                        // For safety, we just drop audio packets in standby.
-                    } else {
-                        // Play Audio
-                        const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                        if (audioData && outputContextRef.current) {
-                           const audioBuffer = await decodeAudioData(base64ToUint8Array(audioData), outputContextRef.current, 24000);
-                           const source = outputContextRef.current.createBufferSource();
-                           const analyser = outputContextRef.current.createAnalyser();
-                           analyser.fftSize = 64; 
-                           source.buffer = audioBuffer;
-                           source.connect(analyser);
-                           analyser.connect(outputContextRef.current.destination);
-                           
-                           activeSourcesRef.current.push(source);
-                           source.onended = () => {
-                               activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
-                           };
+                        // Drop audio packets to effectively mute
+                        return;
+                    } 
+                    
+                    // Play Audio
+                    const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                    if (audioData && outputContextRef.current) {
+                        const audioBuffer = await decodeAudioData(base64ToUint8Array(audioData), outputContextRef.current, 24000);
+                        const source = outputContextRef.current.createBufferSource();
+                        const analyser = outputContextRef.current.createAnalyser();
+                        analyser.fftSize = 64; 
+                        source.buffer = audioBuffer;
+                        source.connect(analyser);
+                        analyser.connect(outputContextRef.current.destination);
+                        
+                        activeSourcesRef.current.push(source);
+                        source.onended = () => {
+                            activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+                        };
 
-                           // Output Visualizer
-                           const bufferLength = analyser.frequencyBinCount;
-                           const dataArray = new Uint8Array(bufferLength);
-                           const updateVisualizer = () => {
-                             if (!isConnectedRef.current) return;
-                             analyser.getByteFrequencyData(dataArray);
-                             let sum = 0;
-                             for (let i=0; i<bufferLength; i++) sum += dataArray[i];
-                             onVisualizerUpdate((sum / bufferLength) / 255); 
-                             requestAnimationFrame(updateVisualizer);
-                           };
-                           requestAnimationFrame(updateVisualizer);
+                        // Output Visualizer
+                        const bufferLength = analyser.frequencyBinCount;
+                        const dataArray = new Uint8Array(bufferLength);
+                        const updateVisualizer = () => {
+                            if (!isConnectedRef.current) return;
+                            analyser.getByteFrequencyData(dataArray);
+                            let sum = 0;
+                            for (let i=0; i<bufferLength; i++) sum += dataArray[i];
+                            onVisualizerUpdate((sum / bufferLength) / 255); 
+                            requestAnimationFrame(updateVisualizer);
+                        };
+                        requestAnimationFrame(updateVisualizer);
 
-                           const currentTime = outputContextRef.current.currentTime;
-                           if (nextStartTimeRef.current < currentTime) nextStartTimeRef.current = currentTime;
-                           source.start(nextStartTimeRef.current);
-                           nextStartTimeRef.current += audioBuffer.duration;
+                        const currentTime = outputContextRef.current.currentTime;
+                        // Tighten the scheduling loop to reduce latency
+                        if (nextStartTimeRef.current < currentTime) {
+                            nextStartTimeRef.current = currentTime;
                         }
+                        
+                        source.start(nextStartTimeRef.current);
+                        nextStartTimeRef.current += audioBuffer.duration;
                     }
                     
                     // --- TOOLS ---
@@ -376,12 +399,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                     sendRemoteCommand('open_app', platform);
                                     result = { status: 'opened', details: `Opened ${platform} on remote host` };
                                 } else {
-                                    // Trigger Open App Logic via map in DevicePairing or direct window location if possible
-                                    // Here we just replicate the open_app logic locally for "standalone"
-                                    // We can't import the map here easily, so we use a simple dispatch or helper? 
-                                    // Actually, we can reuse executeRemoteAction logic right below
-                                    
-                                    // Construct URI
                                     let uri = '';
                                     const p = platform.toLowerCase();
                                     if (p.includes('whatsapp')) uri = 'whatsapp://';
@@ -393,7 +410,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                     if (uri.startsWith('http')) window.open(uri, '_blank');
                                     else window.location.assign(uri);
                                     
-                                    result = { status: 'opened', message: `I have opened ${platform}${sender}. I cannot read messages directly due to privacy, but they are on screen now.` };
+                                    result = { status: 'opened', message: `I have opened ${platform}${sender}.` };
                                 }
                             }
                             else if (fc.name === 'controlMedia') {
@@ -418,13 +435,11 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                 if (isRemoteMode) {
                                     sendRemoteCommand(args.action, args.query);
                                 } else {
-                                    // Direct action if not remote
                                     setTimeout(() => {
                                         if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
                                         else if (args.action === 'play_music') window.location.assign(`spotify:search:${encodeURIComponent(args.query)}`);
                                         else if (args.action === 'play_video') window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(args.query)}`, '_blank');
                                         else if (args.action === 'open_app') {
-                                             // Basic fallback for standalone if pairing hook map isn't available
                                              const q = args.query.toLowerCase();
                                              if (q.includes('whatsapp')) window.location.assign('whatsapp://');
                                              else if (q.includes('discord')) window.location.assign('discord://');

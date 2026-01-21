@@ -30,7 +30,6 @@ const App: React.FC = () => {
   });
 
   const [showSettings, setShowSettings] = useState(false);
-  const [apiKeyMissing, setApiKeyMissing] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'personalities' | 'device_link' | 'voice'>('general');
   const [targetCodeInput, setTargetCodeInput] = useState('');
   const [isMediaPlaying, setIsMediaPlaying] = useState(false);
@@ -42,16 +41,6 @@ const App: React.FC = () => {
   const { role, pairingCode, connectionStatus: p2pStatus, initializeHost, connectToHost, sendCommand, disconnectP2P } = useDevicePairing();
 
   const volumeRef = useRef<number>(0);
-
-  useEffect(() => {
-    // The API key must be obtained exclusively from the environment variable process.env.API_KEY
-    const key = process.env.API_KEY;
-
-    if (!key) {
-        console.error("Critical: API Key not found in environment variables.");
-        setApiKeyMissing(true);
-    }
-  }, []);
 
   useEffect(() => {
     const overrides = JSON.parse(localStorage.getItem('eva_voice_overrides') || '{}');
@@ -258,7 +247,6 @@ const App: React.FC = () => {
               <div className="flex flex-col items-center gap-4">
                   <button
                     onClick={handleToggleConnection}
-                    disabled={apiKeyMissing}
                     className={`
                       group relative flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 transition-all duration-300
                       ${connectionState === 'connected' 
@@ -266,7 +254,6 @@ const App: React.FC = () => {
                             ? `border-amber-500/50 bg-amber-900/10` 
                             : `border-${activeCharacter.themeColor}-500/50 bg-${activeCharacter.themeColor}-900/10 hover:bg-${activeCharacter.themeColor}-900/30`)
                         : `border-${activeCharacter.themeColor}-500/50 bg-${activeCharacter.themeColor}-900/10 hover:bg-${activeCharacter.themeColor}-900/30`}
-                      ${apiKeyMissing ? 'opacity-50 cursor-not-allowed' : ''}
                       ${connectionState === 'connecting' ? 'animate-pulse' : ''}
                     `}
                   >
@@ -329,7 +316,7 @@ const App: React.FC = () => {
               </div>
               
               <div className="text-xs text-gray-600 font-mono mt-2">
-                {apiKeyMissing ? "API KEY REQUIRED" : "CLICK TO INITIALIZE LINK"}
+                 INITIALIZE SYSTEM TO START
               </div>
            </div>
         </div>
@@ -366,32 +353,197 @@ const App: React.FC = () => {
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-2xl w-full flex flex-col shadow-2xl relative overflow-hidden">
-            <div className="p-4 md:p-6 border-b border-gray-800 flex justify-between items-center bg-gray-950">
-               <h3 className="text-lg md:text-xl font-display font-bold text-white flex items-center">
-                 <Settings className="w-4 h-4 md:w-5 md:h-5 mr-2 text-cyan-500" /> 
-                 SYSTEM CONFIG
-               </h3>
-               <button onClick={() => setShowSettings(false)} className="px-3 bg-gray-800 rounded text-xs text-gray-400">HIDE</button>
-            </div>
+          <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-4xl w-full h-[600px] flex shadow-2xl relative overflow-hidden flex-col md:flex-row">
             
-            <div className="p-6 text-center text-gray-500">
-                (Settings are currently disabled in this simplified view)
-                <button 
-                     onClick={() => setShowSettings(false)}
-                     className="mt-4 px-4 py-2 bg-red-900/50 text-red-300 rounded"
-                >
-                    Close Settings
+            {/* Sidebar */}
+            <div className="w-full md:w-64 bg-black/40 border-r border-gray-800 p-4 flex flex-col space-y-2">
+               <h3 className="text-xl font-display font-bold text-white mb-6 flex items-center">
+                 <Settings className="w-5 h-5 mr-2 text-cyan-500" /> CONFIG
+               </h3>
+               
+               <button 
+                 onClick={() => setSettingsTab('general')}
+                 className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'general' ? 'bg-cyan-900/20 text-cyan-400 border border-cyan-900' : 'text-gray-400 hover:bg-gray-800'}`}
+               >
+                 <Settings className="w-4 h-4" />
+                 <span>General</span>
+               </button>
+
+               <button 
+                 onClick={() => setSettingsTab('device_link')}
+                 className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'device_link' ? 'bg-purple-900/20 text-purple-400 border border-purple-900' : 'text-gray-400 hover:bg-gray-800'}`}
+               >
+                 <Wifi className="w-4 h-4" />
+                 <span>Device Link</span>
+               </button>
+
+                <div className="flex-1" />
+                <button onClick={() => setShowSettings(false)} className="px-4 py-3 text-gray-500 hover:text-white text-left text-sm">
+                    Close Menu
                 </button>
             </div>
+
+            {/* Content Area */}
+            <div className="flex-1 bg-gray-900/50 p-6 overflow-y-auto">
+               
+               {/* GENERAL TAB */}
+               {settingsTab === 'general' && (
+                   <div className="space-y-6 animate-fade-in">
+                       <h4 className="text-lg font-bold text-white border-b border-gray-800 pb-2">Voice Protocols</h4>
+                       
+                       <div className="space-y-4">
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                               <div>
+                                   <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Wake Word</label>
+                                   <input 
+                                     type="text" 
+                                     value={wakeWord}
+                                     onChange={(e) => setWakeWord(e.target.value)}
+                                     placeholder="e.g. Hey Eva"
+                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none"
+                                   />
+                                   <p className="text-[10px] text-gray-600 mt-1">Leave empty to disable. Say this to wake from standby.</p>
+                               </div>
+                               <div>
+                                   <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Stop Word</label>
+                                   <input 
+                                     type="text" 
+                                     value={stopWord}
+                                     onChange={(e) => setStopWord(e.target.value)}
+                                     placeholder="e.g. Stop"
+                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-red-500 focus:outline-none"
+                                   />
+                                   <p className="text-[10px] text-gray-600 mt-1">Emergency phrase to immediately silence the AI.</p>
+                               </div>
+                           </div>
+
+                           <div className="p-4 bg-gray-800/30 rounded border border-gray-800 flex items-center justify-between">
+                               <div>
+                                   <div className="font-bold text-sm text-gray-200">Always On Mode</div>
+                                   <div className="text-xs text-gray-500">Automatically reconnect if disconnected.</div>
+                               </div>
+                               <button 
+                                 onClick={() => setAlwaysOn(!alwaysOn)}
+                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${alwaysOn ? 'bg-green-600' : 'bg-gray-700'}`}
+                               >
+                                   <div className={`w-4 h-4 bg-white rounded-full transition-transform ${alwaysOn ? 'translate-x-6' : 'translate-x-0'}`} />
+                               </button>
+                           </div>
+                       </div>
+                   </div>
+               )}
+
+               {/* DEVICE LINK TAB */}
+               {settingsTab === 'device_link' && (
+                   <div className="space-y-6 animate-fade-in">
+                       <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                           <h4 className="text-lg font-bold text-white">Neural Link (P2P)</h4>
+                           <span className={`text-xs px-2 py-1 rounded border ${
+                               p2pStatus === 'connected' ? 'bg-green-900/20 border-green-500 text-green-400' : 
+                               p2pStatus === 'connecting' ? 'bg-yellow-900/20 border-yellow-500 text-yellow-400' :
+                               'bg-gray-800 border-gray-600 text-gray-400'
+                           }`}>
+                               STATUS: {p2pStatus.toUpperCase()}
+                           </span>
+                       </div>
+
+                       {role === 'standalone' && (
+                           <div className="grid grid-cols-1 gap-6">
+                               {/* Host Card */}
+                               <div className="p-6 bg-gradient-to-br from-purple-900/20 to-black border border-purple-500/30 rounded-xl hover:border-purple-500/60 transition-colors">
+                                   <div className="flex items-center mb-4 text-purple-400">
+                                       <Monitor className="w-6 h-6 mr-3" />
+                                       <h5 className="font-bold text-lg">Desktop Host Mode</h5>
+                                   </div>
+                                   <p className="text-sm text-gray-400 mb-4">
+                                       Turn this device into a "Host". It will execute commands (open apps, play music) received from a remote controller.
+                                   </p>
+                                   <button 
+                                     onClick={initializeHost}
+                                     className="w-full py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded shadow-[0_0_15px_rgba(147,51,234,0.3)] transition-all"
+                                   >
+                                       INITIALIZE HOST
+                                   </button>
+                               </div>
+
+                               {/* Remote Card */}
+                               <div className="p-6 bg-gradient-to-br from-blue-900/20 to-black border border-blue-500/30 rounded-xl hover:border-blue-500/60 transition-colors">
+                                   <div className="flex items-center mb-4 text-blue-400">
+                                       <Smartphone className="w-6 h-6 mr-3" />
+                                       <h5 className="font-bold text-lg">Remote Controller Mode</h5>
+                                   </div>
+                                   <p className="text-sm text-gray-400 mb-4">
+                                       Connect to an existing Host. You will act as the microphone and brain, sending commands to the Host.
+                                   </p>
+                                   <div className="flex space-x-2">
+                                       <input 
+                                         type="text" 
+                                         placeholder="Enter Host Code"
+                                         value={targetCodeInput}
+                                         onChange={(e) => setTargetCodeInput(e.target.value.toUpperCase())}
+                                         maxLength={4}
+                                         className="flex-1 bg-black border border-gray-700 rounded px-4 py-2 text-center tracking-[0.5em] font-mono text-lg uppercase focus:border-blue-500 focus:outline-none"
+                                       />
+                                       <button 
+                                         onClick={() => connectToHost(targetCodeInput)}
+                                         disabled={targetCodeInput.length !== 4}
+                                         className="px-6 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded"
+                                       >
+                                           LINK
+                                       </button>
+                                   </div>
+                               </div>
+                           </div>
+                       )}
+
+                       {role === 'host' && (
+                           <div className="flex flex-col items-center justify-center py-10 space-y-6">
+                               <div className="w-32 h-32 bg-purple-900/20 rounded-full flex items-center justify-center animate-pulse border border-purple-500">
+                                   <Monitor className="w-16 h-16 text-purple-400" />
+                               </div>
+                               <div className="text-center">
+                                   <p className="text-gray-400 text-sm mb-2">PAIRING CODE</p>
+                                   <div className="text-5xl font-mono font-bold text-white tracking-widest text-shadow-purple">
+                                       {pairingCode}
+                                   </div>
+                               </div>
+                               <p className="text-xs text-gray-500 max-w-xs text-center">
+                                   Enter this code on your mobile device to establish a neural link.
+                               </p>
+                               <button onClick={disconnectP2P} className="px-6 py-2 border border-red-500/50 text-red-400 hover:bg-red-900/20 rounded">
+                                   TERMINATE HOST
+                               </button>
+                           </div>
+                       )}
+
+                       {role === 'remote' && (
+                           <div className="flex flex-col items-center justify-center py-10 space-y-6">
+                               <div className="w-32 h-32 bg-blue-900/20 rounded-full flex items-center justify-center border border-blue-500 relative">
+                                   <Smartphone className="w-16 h-16 text-blue-400 z-10" />
+                                   {p2pStatus === 'connected' && <div className="absolute inset-0 rounded-full animate-ping border border-blue-500 opacity-20"></div>}
+                               </div>
+                               <div className="text-center">
+                                   <h5 className="text-xl font-bold text-white">CONNECTED TO HOST</h5>
+                                   <p className="text-blue-400 font-mono mt-1">Latency: Low</p>
+                               </div>
+                               <button onClick={disconnectP2P} className="px-6 py-2 border border-red-500/50 text-red-400 hover:bg-red-900/20 rounded">
+                                   DISCONNECT REMOTE
+                               </button>
+                           </div>
+                       )}
+                   </div>
+               )}
+            </div>
+
+            {/* Close Button Mobile */}
+            <button 
+                onClick={() => setShowSettings(false)}
+                className="absolute top-4 right-4 md:hidden p-2 bg-gray-800 rounded-full text-gray-400"
+            >
+                <EyeOff className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      )}
-
-      {apiKeyMissing && (
-         <div className="fixed bottom-0 left-0 right-0 bg-red-900/90 text-white p-4 text-center z-[100] font-bold">
-           CRITICAL: API_KEY NOT DETECTED. SYSTEM HALTED.
-         </div>
       )}
     </div>
   );
