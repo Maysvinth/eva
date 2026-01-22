@@ -1,14 +1,22 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
 import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, downsampleTo16k } from '../utils/audio';
 import { CharacterProfile, ConnectionState, Message } from '../types';
 
-// Supported Voices Map
+// Supported Voices Map - Mapping 20+ Personas to actual Gemini Models
 const SAFE_VOICE_MAP: Record<string, string> = {
+  // Originals
   'Puck': 'Puck', 'Charon': 'Charon', 'Fenrir': 'Fenrir', 'Lynx': 'Fenrir', 'Orion': 'Charon',
-  'Kael': 'Fenrir', 'Ryu': 'Puck', 'Atlas': 'Charon', 'Neo': 'Puck', 'Dante': 'Fenrir',
   'Kore': 'Kore', 'Zephyr': 'Zephyr', 'Aoede': 'Zephyr', 'Leda': 'Kore', 'Vega': 'Zephyr',
+  
+  // Anime Males (Mapped to closest real voices)
+  'Kael': 'Fenrir', 'Ryu': 'Puck', 'Atlas': 'Charon', 'Neo': 'Puck', 'Dante': 'Fenrir',
+  'Raiden': 'Fenrir', 'Haruto': 'Puck', 'Shinji': 'Puck', 'Ghost': 'Charon', 'Blitz': 'Fenrir',
+  
+  // Anime Females (Mapped to closest real voices)
   'Luna': 'Zephyr', 'Solaris': 'Kore', 'Nova': 'Zephyr', 'Aria': 'Zephyr', 'Viper': 'Kore',
+  'Miko': 'Kore', 'Yuki': 'Zephyr', 'Hana': 'Puck', 'Pixie': 'Puck', 'Siren': 'Kore'
 };
 
 const timeTool: FunctionDeclaration = {
@@ -19,7 +27,7 @@ const timeTool: FunctionDeclaration = {
 
 const mediaControlTool: FunctionDeclaration = {
   name: 'controlMedia',
-  description: 'Control media playback (play, pause, next track, previous track, seek).',
+  description: 'Control active media playback (pause, resume, next, previous). DOES NOT search or play new songs.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -34,7 +42,7 @@ const mediaControlTool: FunctionDeclaration = {
 
 const laptopControlTool: FunctionDeclaration = {
   name: 'executeRemoteAction',
-  description: 'Execute PC action: open_app, open_url, play_music, play_video.',
+  description: 'Execute PC action. Use this to PLAY NEW MUSIC/VIDEOS (e.g., "Play Linkin Park", "Open YouTube").',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -184,7 +192,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     if (isConnectedRef.current || connectionState === 'connecting') return;
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
 
-    // Retrieve API Key
     const apiKey = process.env.API_KEY;
 
     if (!apiKey) {
@@ -238,6 +245,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             responseModalities: [Modality.AUDIO],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: safeVoice } } },
             systemInstruction: finalSystemInstruction,
+            // Optimization: Remove thinkingConfig for max speed on Flash model
             inputAudioTranscription: {}, 
             outputAudioTranscription: {},
             tools: [{ functionDeclarations: [timeTool, laptopControlTool, mediaControlTool, communicationTool] }]
@@ -276,16 +284,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
                       const inputData = e.inputBuffer.getChannelData(0);
                       
-                      // Calculate volume for visualizer
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=20) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/20)) * 3;
                       
-                      // CRITICAL FIX: Do not block data sending based on volume.
-                      // Send EVERYTHING to the model so it can detect the wake word even if quiet.
                       onVisualizerUpdate(vol); 
                       
-                      // Update activity timer only if audio is reasonably loud to prevent background noise from keeping it alive
                       if (vol > 0.05) {
                           lastSpeechTimeRef.current = Date.now();
                       }
@@ -315,9 +319,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     }
                     
                     if (serverContent?.turnComplete) {
-                        // Reset buffer on turn complete?
-                        // Better to keep a rolling buffer or reset intelligently.
-                        // Resetting here is fine as long as wake word isn't split across turns (unlikely for short phrases).
                         transcriptBufferRef.current = "";
                     }
 
@@ -326,7 +327,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       const text = serverContent.inputTranscription.text;
                       setStreamingUserText(prev => prev + text);
                       
-                      // Use space to prevent concatenation issues
                       transcriptBufferRef.current += (" " + text);
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
 
@@ -348,7 +348,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     }
 
                     // --- OUTPUT PROCESSING (Model) ---
-                    // If in Standby, IGNORE model audio output
                     if (isStandbyRef.current) {
                         return;
                     } 
@@ -421,6 +420,16 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                             else if (fc.name === 'controlMedia') {
                                 const args = fc.args as any;
                                 if (args.command === 'pause' || args.command === 'stop') stopAllAudio();
+                                
+                                // DIRECT DOM MANIPULATION FOR VIDEO/AUDIO ELEMENTS
+                                const mediaElements = document.querySelectorAll('video, audio');
+                                mediaElements.forEach((el: any) => {
+                                    try {
+                                        if (args.command === 'pause' || args.command === 'stop') el.pause();
+                                        if (args.command === 'play') el.play();
+                                    } catch(e) {}
+                                });
+
                                 if (onMediaCommand) onMediaCommand(args.command);
                                 
                                 if (isRemoteMode) {

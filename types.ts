@@ -10,10 +10,10 @@ export interface Message {
 export type VoiceName = 
   // Originals
   'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr' | 'Aoede' | 'Leda' | 'Lynx' | 'Orion' | 'Vega' |
-  // New Anime Males
-  'Kael' | 'Ryu' | 'Atlas' | 'Neo' | 'Dante' |
-  // New Anime Females
-  'Luna' | 'Solaris' | 'Nova' | 'Aria' | 'Viper';
+  // Anime Males (10)
+  'Kael' | 'Ryu' | 'Atlas' | 'Neo' | 'Dante' | 'Raiden' | 'Haruto' | 'Shinji' | 'Ghost' | 'Blitz' |
+  // Anime Females (10)
+  'Luna' | 'Solaris' | 'Nova' | 'Aria' | 'Viper' | 'Miko' | 'Yuki' | 'Hana' | 'Pixie' | 'Siren';
 
 export interface CharacterProfile {
   id: string;
