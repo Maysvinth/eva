@@ -31,6 +31,7 @@ const App: React.FC = () => {
 
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'personalities' | 'device_link' | 'voice'>('general');
+  const [voiceFilter, setVoiceFilter] = useState<'All' | 'Male' | 'Female'>('All');
   const [targetCodeInput, setTargetCodeInput] = useState('');
   const [isMediaPlaying, setIsMediaPlaying] = useState(false);
   
@@ -98,9 +99,12 @@ const App: React.FC = () => {
   const handleVoiceSelection = (voiceName: VoiceName) => {
      const signatureCharacter = CHARACTERS.find(c => c.voiceName === voiceName);
      const voiceData = VOICE_LIBRARY.find(v => v.name === voiceName);
-     if (signatureCharacter) {
-        switchCharacter(signatureCharacter);
-     } else if (voiceData) {
+     if (signatureCharacter && activeCharacter.id !== signatureCharacter.id) {
+        // Option: switch to that character completely? 
+        // For now, let's just apply the voice to the current character to allow customization
+     }
+     
+     if (voiceData) {
         setActiveCharacter(prev => ({ ...prev, voiceName: voiceName, themeColor: voiceData.themeColor, visualizerColor: voiceData.hexColor }));
      }
   };
@@ -377,6 +381,14 @@ const App: React.FC = () => {
                  <span>Device Link</span>
                </button>
 
+               <button 
+                 onClick={() => setSettingsTab('voice')}
+                 className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'voice' ? 'bg-pink-900/20 text-pink-400 border border-pink-900' : 'text-gray-400 hover:bg-gray-800'}`}
+               >
+                 <Volume2 className="w-4 h-4" />
+                 <span>Voices</span>
+               </button>
+
                 <div className="flex-1" />
                 <button onClick={() => setShowSettings(false)} className="px-4 py-3 text-gray-500 hover:text-white text-left text-sm">
                     Close Menu
@@ -429,6 +441,66 @@ const App: React.FC = () => {
                                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${alwaysOn ? 'translate-x-6' : 'translate-x-0'}`} />
                                </button>
                            </div>
+                       </div>
+                   </div>
+               )}
+
+               {/* VOICE TAB */}
+               {settingsTab === 'voice' && (
+                   <div className="space-y-6 animate-fade-in">
+                       <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                           <h4 className="text-lg font-bold text-white">Neural Voice Module</h4>
+                           <div className="flex bg-black border border-gray-800 rounded-lg p-1">
+                               {['All', 'Male', 'Female'].map((f) => (
+                                   <button
+                                       key={f}
+                                       onClick={() => setVoiceFilter(f as any)}
+                                       className={`px-3 py-1 text-xs rounded-md transition-all ${
+                                           voiceFilter === f 
+                                           ? 'bg-gray-700 text-white shadow-sm' 
+                                           : 'text-gray-500 hover:text-gray-300'
+                                       }`}
+                                   >
+                                       {f}
+                                   </button>
+                               ))}
+                           </div>
+                       </div>
+
+                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
+                           {VOICE_LIBRARY.filter(v => voiceFilter === 'All' || v.gender === voiceFilter).map((voice) => (
+                               <button
+                                   key={voice.name}
+                                   onClick={() => handleVoiceSelection(voice.name)}
+                                   className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
+                                       activeCharacter.voiceName === voice.name 
+                                       ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
+                                       : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
+                                   }`}
+                               >
+                                   <div className="flex justify-between items-start mb-2">
+                                       <span className={`font-bold font-display tracking-wide text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300 transition-colors`}>
+                                           {voice.name}
+                                       </span>
+                                       {activeCharacter.voiceName === voice.name && (
+                                           <div className={`w-2 h-2 rounded-full bg-${voice.themeColor}-500 animate-pulse shadow-[0_0_8px_currentColor]`} />
+                                       )}
+                                   </div>
+                                   
+                                   <div className="flex items-center space-x-2 mb-2">
+                                       <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-${voice.themeColor}-900/30 text-${voice.themeColor}-300/70 border border-${voice.themeColor}-500/20`}>
+                                           {voice.gender}
+                                       </span>
+                                   </div>
+                                   
+                                   <p className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors line-clamp-2 leading-relaxed">
+                                       {voice.description}
+                                   </p>
+                                   
+                                   {/* Hover Gradient */}
+                                   <div className={`absolute inset-0 bg-gradient-to-br from-${voice.themeColor}-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
+                               </button>
+                           ))}
                        </div>
                    </div>
                )}
