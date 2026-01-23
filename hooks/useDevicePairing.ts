@@ -1,3 +1,4 @@
+
 import { useState, useRef, useCallback } from 'react';
 import { Peer, DataConnection } from 'peerjs';
 import { DeviceRole, RemoteCommandPacket } from '../types';
@@ -9,6 +10,18 @@ function generateShortId() {
 // Map common app names to URI schemes
 // This allows the web app to launch desktop applications via Deep Linking
 const APP_PROTOCOL_MAP: Record<string, string> = {
+  // --- WEBSITES (Direct Launch) ---
+  'youtube': 'https://www.youtube.com',
+  'google': 'https://www.google.com',
+  'netflix': 'https://www.netflix.com',
+  'hulu': 'https://www.hulu.com',
+  'prime video': 'https://www.amazon.com/primevideo',
+  'twitter': 'https://twitter.com',
+  'x': 'https://twitter.com',
+  'reddit': 'https://www.reddit.com',
+  'instagram': 'https://www.instagram.com',
+  'facebook': 'https://www.facebook.com',
+
   // --- MESSAGING & SOCIAL ---
   'discord': 'discord://', 
   'slack': 'slack://', 
@@ -99,8 +112,7 @@ export const useDevicePairing = () => {
                 const cleanQuery = query.toLowerCase().replace(/^(open|launch|run|check|read|go to)\s+/i, '').trim();
                 let target = APP_PROTOCOL_MAP[cleanQuery];
                 
-                // Fuzzy match for partial names (e.g., "messages" -> "fb-messenger" or "imessage"?)
-                // Just checking keys
+                // Fuzzy match for partial names
                 if (!target) {
                     const key = Object.keys(APP_PROTOCOL_MAP).find(k => cleanQuery.includes(k) || k.includes(cleanQuery));
                     if (key) target = APP_PROTOCOL_MAP[key];
@@ -108,7 +120,8 @@ export const useDevicePairing = () => {
 
                 if (target) {
                     // Critical: location.assign is needed for Protocol Handlers to work without user interaction on some browsers
-                    window.location.assign(target);
+                    if (target.startsWith('http')) window.open(target, '_blank');
+                    else window.location.assign(target);
                 } else {
                     // Fallback to Google Search if app not found
                     window.open(`https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`, '_blank');

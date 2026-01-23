@@ -1,20 +1,14 @@
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
 import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, downsampleTo16k } from '../utils/audio';
 import { CharacterProfile, ConnectionState, Message } from '../types';
 
-// Supported Voices Map - Mapping 20+ Personas to actual Gemini Models
+// Supported Voices Map
 const SAFE_VOICE_MAP: Record<string, string> = {
-  // Originals
   'Puck': 'Puck', 'Charon': 'Charon', 'Fenrir': 'Fenrir', 'Lynx': 'Fenrir', 'Orion': 'Charon',
   'Kore': 'Kore', 'Zephyr': 'Zephyr', 'Aoede': 'Zephyr', 'Leda': 'Kore', 'Vega': 'Zephyr',
-  
-  // Anime Males (Mapped to closest real voices)
   'Kael': 'Fenrir', 'Ryu': 'Puck', 'Atlas': 'Charon', 'Neo': 'Puck', 'Dante': 'Fenrir',
   'Raiden': 'Fenrir', 'Haruto': 'Puck', 'Shinji': 'Puck', 'Ghost': 'Charon', 'Blitz': 'Fenrir',
-  
-  // Anime Females (Mapped to closest real voices)
   'Luna': 'Zephyr', 'Solaris': 'Kore', 'Nova': 'Zephyr', 'Aria': 'Zephyr', 'Viper': 'Kore',
   'Miko': 'Kore', 'Yuki': 'Zephyr', 'Hana': 'Puck', 'Pixie': 'Puck', 'Siren': 'Kore'
 };
@@ -27,13 +21,13 @@ const timeTool: FunctionDeclaration = {
 
 const mediaControlTool: FunctionDeclaration = {
   name: 'controlMedia',
-  description: 'Control active media playback (pause, resume, next, previous). DOES NOT search or play new songs.',
+  description: 'Execute only for: PLAY, PAUSE, STOP, RESUME, NEXT, PREVIOUS.',
   parameters: {
     type: Type.OBJECT,
     properties: {
       command: { 
         type: Type.STRING, 
-        enum: ['play', 'pause', 'next', 'previous', 'stop', 'seek_forward', 'seek_backward'] 
+        enum: ['play', 'pause', 'next', 'previous', 'stop', 'resume', 'seek_forward', 'seek_backward'] 
       }
     },
     required: ['command']
@@ -42,7 +36,7 @@ const mediaControlTool: FunctionDeclaration = {
 
 const laptopControlTool: FunctionDeclaration = {
   name: 'executeRemoteAction',
-  description: 'Execute PC action. Use this to PLAY NEW MUSIC/VIDEOS (e.g., "Play Linkin Park", "Open YouTube").',
+  description: 'Execute only for: OPEN/LAUNCH [app/site] or PLAY [media].',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -58,12 +52,12 @@ const laptopControlTool: FunctionDeclaration = {
 
 const communicationTool: FunctionDeclaration = {
     name: 'checkMessages',
-    description: 'Check for messages from a specific person on a platform (WhatsApp, Discord, etc).',
+    description: 'Check messages for [app].',
     parameters: {
         type: Type.OBJECT,
         properties: {
-            platform: { type: Type.STRING, description: 'App name e.g., WhatsApp, Discord, Slack' },
-            sender: { type: Type.STRING, description: 'Name of the person' }
+            platform: { type: Type.STRING },
+            sender: { type: Type.STRING }
         },
         required: ['platform']
     }
@@ -86,8 +80,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const [streamingUserText, setStreamingUserText] = useState<string>("");
   const [streamingModelText, setStreamingModelText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  
-  // Standby State (Muted but listening for wake word)
   const [isStandby, setIsStandby] = useState(false);
   const isStandbyRef = useRef(false);
 
@@ -108,77 +100,42 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const standbyCheckIntervalRef = useRef<any>(null);
   const transcriptBufferRef = useRef<string>("");
 
-  // Sync state with ref for access in callbacks
-  useEffect(() => {
-    isStandbyRef.current = isStandby;
-  }, [isStandby]);
+  useEffect(() => { isStandbyRef.current = isStandby; }, [isStandby]);
 
   const stopAllAudio = useCallback(() => {
-    activeSourcesRef.current.forEach(source => {
-      try { source.stop(); } catch (e) {}
-    });
+    activeSourcesRef.current.forEach(source => { try { source.stop(); } catch (e) {} });
     activeSourcesRef.current = [];
-    if (outputContextRef.current) {
-        // Reset timing to now to prevent lag when resuming
-        nextStartTimeRef.current = outputContextRef.current.currentTime;
-    }
+    if (outputContextRef.current) nextStartTimeRef.current = outputContextRef.current.currentTime;
   }, []);
 
-  // Enter Standby Mode (Muted)
   const enterStandby = useCallback(() => {
-    console.log("Entering Standby Mode (Muted)");
     setIsStandby(true);
     isStandbyRef.current = true;
     stopAllAudio();
   }, [stopAllAudio]);
 
   const exitStandby = useCallback(() => {
-    console.log("Wake Word Detected - Exiting Standby (Unmuted)");
     setIsStandby(false);
     isStandbyRef.current = false;
     lastSpeechTimeRef.current = Date.now();
-    if (outputContextRef.current) {
-        nextStartTimeRef.current = outputContextRef.current.currentTime;
-    }
+    if (outputContextRef.current) nextStartTimeRef.current = outputContextRef.current.currentTime;
   }, []);
 
   const disconnect = useCallback(async () => {
     isConnectedRef.current = false;
-    
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
     if (standbyCheckIntervalRef.current) clearInterval(standbyCheckIntervalRef.current);
-
-    if (currentSessionRef.current) {
-        try { currentSessionRef.current.close(); } catch (e) {}
-        currentSessionRef.current = null;
-    }
+    if (currentSessionRef.current) { try { currentSessionRef.current.close(); } catch (e) {} currentSessionRef.current = null; }
 
     stopAllAudio();
     activeConnectionParamsRef.current = null;
     transcriptBufferRef.current = "";
     
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-
-    if (processorNodeRef.current) {
-      try { processorNodeRef.current.disconnect(); } catch(e) {}
-      processorNodeRef.current = null;
-    }
-    if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.disconnect(); } catch(e) {}
-      sourceNodeRef.current = null;
-    }
-    
-    if (inputContextRef.current && inputContextRef.current.state !== 'closed') {
-      try { await inputContextRef.current.close(); } catch(e) {}
-      inputContextRef.current = null;
-    }
-    if (outputContextRef.current && outputContextRef.current.state !== 'closed') {
-      try { await outputContextRef.current.close(); } catch(e) {}
-      outputContextRef.current = null;
-    }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
+    if (processorNodeRef.current) { try { processorNodeRef.current.disconnect(); } catch(e) {} processorNodeRef.current = null; }
+    if (sourceNodeRef.current) { try { sourceNodeRef.current.disconnect(); } catch(e) {} sourceNodeRef.current = null; }
+    if (inputContextRef.current && inputContextRef.current.state !== 'closed') { try { await inputContextRef.current.close(); } catch(e) {} inputContextRef.current = null; }
+    if (outputContextRef.current && outputContextRef.current.state !== 'closed') { try { await outputContextRef.current.close(); } catch(e) {} outputContextRef.current = null; }
     
     setConnectionState('disconnected');
     setIsStandby(false);
@@ -193,26 +150,17 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
 
     const apiKey = process.env.API_KEY;
-
-    if (!apiKey) {
-      setError("API Key Missing");
-      setConnectionState('error');
-      return;
-    }
+    if (!apiKey) { setError("API Key Missing"); setConnectionState('error'); return; }
 
     setConnectionState('connecting');
     setError(null);
     activeConnectionParamsRef.current = { id: character.id, voiceName: character.voiceName, wakeWord: wakeWord, stopWord: stopWord };
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            sampleRate: 16000
-        }});
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 16000 }});
         streamRef.current = stream;
 
+        // Use 16k context for input to match model expectation (less downsampling)
         const audioCtxInput = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
         const audioCtxOutput = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
         
@@ -222,22 +170,16 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         inputContextRef.current = audioCtxInput;
         outputContextRef.current = audioCtxOutput;
 
-        // Protocol Instructions
-        const wakeProto = wakeWord ? `\n\nPROTOCOL: WAKE_WORD_DETECTION
-        The user has a custom Wake Word: "${wakeWord}".
-        If you are silent, listen specifically for this phrase.
-        If the user says "${wakeWord}", respond with "Yes?" or a greeting.` : "";
-
-        const stopProto = stopWord ? `\n\nPROTOCOL: EMERGENCY_STOP
-        If the user says "${stopWord}", STOP speaking immediately.
-        If the user says "Thank you", reply politely then stop speaking.` : "";
-
-        const baseInstruction = isRemoteMode 
-          ? `You are a REMOTE CONTROLLER. Answer FAST and CONCISELY. Use 'executeRemoteAction' for PC tasks. Use 'checkMessages' to open messaging apps.`
-          : `You are a helpful AI Assistant. Answer FAST and CONCISELY. Use 'executeRemoteAction' for PC tasks. Use 'checkMessages' to open messaging apps.`;
-        
-        const finalSystemInstruction = `${baseInstruction} Voice: ${character.voiceName}. ${character.systemInstruction}${wakeProto}${stopProto}`;
         const safeVoice = SAFE_VOICE_MAP[character.voiceName] || 'Puck';
+        // Ultra-concise system instruction for speed
+        const finalSystemInstruction = `You are EVA. Voice: ${character.voiceName}. 
+        PROTOCOLS:
+        1. SPEED: Be extremely concise. 1-2 sentences max unless explained.
+        2. KNOWLEDGE: Answer weather, anime, games, lore, facts VERBALLY. DO NOT use tools.
+        3. COMMANDS: Use 'executeRemoteAction' ONLY if user says OPEN, LAUNCH, PLAY.
+        4. MEDIA: Use 'controlMedia' ONLY for PAUSE, RESUME, STOP, PLAY.
+        ${wakeWord ? `5. WAKE: Listen for "${wakeWord}".` : ""}
+        ${character.systemInstruction}`;
 
         const config = {
           model: 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -245,7 +187,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             responseModalities: [Modality.AUDIO],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: safeVoice } } },
             systemInstruction: finalSystemInstruction,
-            // Optimization: Remove thinkingConfig for max speed on Flash model
             inputAudioTranscription: {}, 
             outputAudioTranscription: {},
             tools: [{ functionDeclarations: [timeTool, laptopControlTool, mediaControlTool, communicationTool] }]
@@ -265,44 +206,36 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     transcriptBufferRef.current = "";
                     
                     const source = audioCtxInput.createMediaStreamSource(stream);
-                    const processor = audioCtxInput.createScriptProcessor(512, 1, 1);
+                    // 1024 buffer size = 64ms latency, better performance than 512 (32ms)
+                    const processor = audioCtxInput.createScriptProcessor(1024, 1, 1);
                     
                     sourceNodeRef.current = source;
                     processorNodeRef.current = processor;
 
-                    // 1-Minute Auto-Standby Timer
                     standbyCheckIntervalRef.current = setInterval(() => {
-                        const timeSinceSpeech = Date.now() - lastSpeechTimeRef.current;
-                        if (timeSinceSpeech > 60000 && isConnectedRef.current && !isStandbyRef.current) { 
+                        if (Date.now() - lastSpeechTimeRef.current > 60000 && isConnectedRef.current && !isStandbyRef.current) { 
                             enterStandby();
-                            console.log("Auto-Standby: 60s Silence Detected");
                         }
                     }, 5000);
 
                     processor.onaudioprocess = (e) => {
                       if (!isConnectedRef.current || !currentSessionRef.current) return;
-
                       const inputData = e.inputBuffer.getChannelData(0);
                       
+                      // Visualizer
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=20) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/20)) * 3;
-                      
                       onVisualizerUpdate(vol); 
                       
-                      if (vol > 0.05) {
-                          lastSpeechTimeRef.current = Date.now();
-                      }
+                      if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
 
-                      const downsampledData = downsampleTo16k(inputData, audioCtxInput.sampleRate);
-                      const blob = pcmToGeminiBlob(downsampledData, 16000);
-                      
+                      // Stream
                       try {
+                         const blob = pcmToGeminiBlob(inputData, 16000);
                          currentSessionRef.current.sendRealtimeInput({ media: blob });
                       } catch (err) {
-                         if (String(err).includes("CLOSING") || String(err).includes("CLOSED")) {
-                             isConnectedRef.current = false;
-                         }
+                         if (String(err).includes("CLOSING")) isConnectedRef.current = false;
                       }
                     };
 
@@ -317,42 +250,25 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         if (outputContextRef.current) nextStartTimeRef.current = outputContextRef.current.currentTime;
                         return; 
                     }
-                    
-                    if (serverContent?.turnComplete) {
-                        transcriptBufferRef.current = "";
-                    }
+                    if (serverContent?.turnComplete) transcriptBufferRef.current = "";
 
-                    // --- INPUT PROCESSING (User) ---
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
                       setStreamingUserText(prev => prev + text);
-                      
                       transcriptBufferRef.current += (" " + text);
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
-
-                      // Wake Word Logic (Unmute)
-                      if (wakeWord && bufferLower.includes(wakeWord.toLowerCase())) {
-                          if (isStandbyRef.current) {
-                              exitStandby();
-                              transcriptBufferRef.current = ""; 
-                          }
+                      
+                      if (wakeWord && bufferLower.includes(wakeWord.toLowerCase()) && isStandbyRef.current) {
+                          exitStandby();
+                          transcriptBufferRef.current = ""; 
                       }
-
-                      // Stop Word Logic (Mute)
                       if ((stopWord && bufferLower.includes(stopWord.toLowerCase())) || bufferLower.includes("thank you")) {
-                          if (!isStandbyRef.current) {
-                              enterStandby();
-                              transcriptBufferRef.current = ""; 
-                          }
+                          if (!isStandbyRef.current) { enterStandby(); transcriptBufferRef.current = ""; }
                       }
                     }
 
-                    // --- OUTPUT PROCESSING (Model) ---
-                    if (isStandbyRef.current) {
-                        return;
-                    } 
+                    if (isStandbyRef.current) return;
                     
-                    // Play Audio
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (audioData && outputContextRef.current) {
                         const audioBuffer = await decodeAudioData(base64ToUint8Array(audioData), outputContextRef.current, 24000);
@@ -381,15 +297,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         requestAnimationFrame(updateVisualizer);
 
                         const currentTime = outputContextRef.current.currentTime;
-                        if (nextStartTimeRef.current < currentTime) {
-                            nextStartTimeRef.current = currentTime;
-                        }
+                        if (nextStartTimeRef.current < currentTime) nextStartTimeRef.current = currentTime;
                         
                         source.start(nextStartTimeRef.current);
                         nextStartTimeRef.current += audioBuffer.duration;
                     }
                     
-                    // --- TOOLS ---
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             let result: any = { status: 'ok' };
@@ -401,61 +314,57 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                 
                                 if (isRemoteMode) {
                                     sendRemoteCommand('open_app', platform);
-                                    result = { status: 'opened', details: `Opened ${platform} on remote host` };
+                                    result = { status: 'opened', details: `Opened ${platform} on remote` };
                                 } else {
                                     let uri = '';
                                     const p = platform.toLowerCase();
                                     if (p.includes('whatsapp')) uri = 'whatsapp://';
                                     else if (p.includes('discord')) uri = 'discord://';
-                                    else if (p.includes('slack')) uri = 'slack://';
-                                    else if (p.includes('telegram')) uri = 'tg://';
                                     else uri = 'https://www.google.com/search?q=' + platform;
-
                                     if (uri.startsWith('http')) window.open(uri, '_blank');
                                     else window.location.assign(uri);
-                                    
-                                    result = { status: 'opened', message: `I have opened ${platform}${sender}.` };
+                                    result = { status: 'opened', message: `Opened ${platform}${sender}.` };
                                 }
                             }
                             else if (fc.name === 'controlMedia') {
                                 const args = fc.args as any;
-                                if (args.command === 'pause' || args.command === 'stop') stopAllAudio();
+                                const cmd = args.command;
+                                if (cmd === 'pause' || cmd === 'stop') stopAllAudio();
                                 
-                                // DIRECT DOM MANIPULATION FOR VIDEO/AUDIO ELEMENTS
                                 const mediaElements = document.querySelectorAll('video, audio');
                                 mediaElements.forEach((el: any) => {
                                     try {
-                                        if (args.command === 'pause' || args.command === 'stop') el.pause();
-                                        if (args.command === 'play') el.play();
+                                        if (cmd === 'pause' || cmd === 'stop') el.pause();
+                                        if (cmd === 'play' || cmd === 'resume') el.play().catch(() => {});
                                     } catch(e) {}
                                 });
-
-                                if (onMediaCommand) onMediaCommand(args.command);
+                                if (onMediaCommand) onMediaCommand(cmd);
                                 
-                                if (isRemoteMode) {
-                                    sendRemoteCommand('media_control', args.command);
-                                } else {
-                                     let key = 'MediaPlayPause';
-                                     if (args.command === 'next') key = 'MediaTrackNext';
-                                     if (args.command === 'previous') key = 'MediaTrackPrevious';
-                                     if (args.command === 'stop') key = 'MediaStop';
-                                     if (args.command === 'seek_forward') key = 'ArrowRight'; 
-                                     if (args.command === 'seek_backward') key = 'ArrowLeft'; 
-                                     try { document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true })); } catch(e) {}
+                                if (isRemoteMode) sendRemoteCommand('media_control', cmd);
+                                else {
+                                     let key = '';
+                                     if (cmd === 'play' || cmd === 'pause' || cmd === 'resume') key = 'MediaPlayPause';
+                                     else if (cmd === 'next') key = 'MediaTrackNext';
+                                     else if (cmd === 'previous') key = 'MediaTrackPrevious';
+                                     else if (cmd === 'stop') key = 'MediaStop';
+                                     else if (cmd === 'seek_forward') key = 'ArrowRight'; 
+                                     else if (cmd === 'seek_backward') key = 'ArrowLeft'; 
+                                     if (key) try { document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true })); } catch(e) {}
                                 }
+                                result = { status: 'ok', command: cmd };
                             } 
                             else if (fc.name === 'executeRemoteAction') {
                                 const args = fc.args as any;
-                                if (isRemoteMode) {
-                                    sendRemoteCommand(args.action, args.query);
-                                } else {
+                                if (isRemoteMode) sendRemoteCommand(args.action, args.query);
+                                else {
                                     setTimeout(() => {
                                         if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
                                         else if (args.action === 'play_music') window.location.assign(`spotify:search:${encodeURIComponent(args.query)}`);
                                         else if (args.action === 'play_video') window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(args.query)}`, '_blank');
                                         else if (args.action === 'open_app') {
                                              const q = args.query.toLowerCase();
-                                             if (q.includes('whatsapp')) window.location.assign('whatsapp://');
+                                             if (q.includes('youtube')) window.location.assign('https://www.youtube.com');
+                                             else if (q.includes('whatsapp')) window.location.assign('whatsapp://');
                                              else if (q.includes('discord')) window.location.assign('discord://');
                                              else if (q.includes('calculator')) window.location.assign('calculator:');
                                              else window.open(`https://www.google.com/search?q=${encodeURIComponent(args.query)}`, '_blank');
@@ -463,9 +372,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                     }, 50);
                                 }
                             } 
-                            session.sendToolResponse({
-                                functionResponses: { id: fc.id, name: fc.name, response: result }
-                            });
+                            session.sendToolResponse({ functionResponses: { id: fc.id, name: fc.name, response: result } });
                         }
                     }
                 },
@@ -481,33 +388,22 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                 },
                 onerror: (err: any) => {
                     const msg = String(err);
-                    if (!msg.includes("Network error")) {
-                        setError(msg);
-                        setConnectionState('error');
-                    }
+                    if (!msg.includes("Network error")) { setError(msg); setConnectionState('error'); }
                     isConnectedRef.current = false;
                 }
             }
         });
-        
         currentSessionRef.current = session;
-
-    } catch (e: any) {
-        setError(e.message);
-        setConnectionState('error');
-    }
+    } catch (e: any) { setError(e.message); setConnectionState('error'); }
   }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby]);
 
-  // Detect character changes
   useEffect(() => {
     if (connectionState === 'connected' && activeConnectionParamsRef.current && !isReconnectingRef.current) {
         const active = activeConnectionParamsRef.current;
         if (active.id !== character.id || active.voiceName !== character.voiceName || active.wakeWord !== wakeWord || active.stopWord !== stopWord) {
             isReconnectingRef.current = true;
             disconnect().then(() => {
-                setTimeout(() => {
-                    connect().finally(() => { isReconnectingRef.current = false; });
-                }, 200); 
+                setTimeout(() => { connect().finally(() => { isReconnectingRef.current = false; }); }, 200); 
             });
         }
     }

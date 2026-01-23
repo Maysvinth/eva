@@ -11,11 +11,13 @@ export function base64ToUint8Array(base64: string): Uint8Array {
 }
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  let binary = '';
   const bytes = new Uint8Array(buffer);
+  let binary = '';
   const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 4096; // Chunk to avoid stack overflow on spread
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
 }
@@ -30,7 +32,6 @@ export function downsampleTo16k(buffer: Float32Array, sampleRate: number): Float
   const newLength = Math.ceil(buffer.length / ratio);
   const result = new Float32Array(newLength);
   
-  // Fast nearest-neighbor downsampling for performance
   for (let i = 0; i < newLength; i++) {
     const offset = Math.floor(i * ratio);
     if (offset < buffer.length) {
@@ -45,10 +46,8 @@ export function pcmToGeminiBlob(data: Float32Array, sampleRate: number): Blob {
   const l = data.length;
   const int16 = new Int16Array(l);
   for (let i = 0; i < l; i++) {
-    // Fast clamp
-    const s = data[i];
-    const clamped = s < -1 ? -1 : s > 1 ? 1 : s;
-    int16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF;
+    const s = Math.max(-1, Math.min(1, data[i]));
+    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
   }
   
   return {
@@ -76,7 +75,6 @@ export async function decodeAudioData(
   return buffer;
 }
 
-// NOISE GATE CALCULATOR
 export function hasSpeech(buffer: Float32Array, threshold: number = 0.01): boolean {
     let sum = 0;
     for (let i = 0; i < buffer.length; i++) {
