@@ -13,13 +13,7 @@ const SAFE_VOICE_MAP: Record<string, string> = {
   'Kael': 'Fenrir', 'Ryu': 'Puck', 'Atlas': 'Charon', 'Neo': 'Puck', 'Dante': 'Fenrir',
   'Raiden': 'Fenrir', 'Haruto': 'Puck', 'Shinji': 'Puck', 'Ghost': 'Charon', 'Blitz': 'Fenrir',
   'Luna': 'Zephyr', 'Solaris': 'Kore', 'Nova': 'Zephyr', 'Aria': 'Zephyr', 'Viper': 'Kore',
-  'Miko': 'Kore', 'Yuki': 'Zephyr', 'Hana': 'Puck', 'Pixie': 'Puck', 'Siren': 'Kore',
-  // Oshi no Ko Specific Mappings
-  'Ai': 'Aoede',     // High pitched, energetic, confident
-  'Aqua': 'Charon',  // Deep, calm, serious
-  'Ruby': 'Puck',    // Playful, energetic, slightly chaotic
-  'Kana': 'Fenrir',  // Expressive, intense (Tsundere vibes)
-  'Akane': 'Leda'    // Soft spoken, intellectual, method actor
+  'Miko': 'Kore', 'Yuki': 'Zephyr', 'Hana': 'Puck', 'Pixie': 'Puck', 'Siren': 'Kore'
 };
 
 const timeTool: FunctionDeclaration = {
