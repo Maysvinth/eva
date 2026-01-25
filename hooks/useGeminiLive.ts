@@ -72,11 +72,12 @@ interface UseGeminiLiveProps {
   wakeWord?: string;
   stopWord?: string;
   onMediaCommand?: (command: string) => void;
+  onToolExecuted?: (toolName: string, args: any) => void;
   isLowLatencyMode?: boolean;
   isEcoMode?: boolean;
 }
 
-export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand, isLowLatencyMode = false, isEcoMode = false }: UseGeminiLiveProps) => {
+export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand, onToolExecuted, isLowLatencyMode = false, isEcoMode = false }: UseGeminiLiveProps) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [messages, setMessages] = useState<Message[]>([]);
   // Streaming text states removed to reduce render load
@@ -382,6 +383,10 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             let result: any = { status: 'ok' };
+                            
+                            // Visual Feedback Trigger
+                            if (onToolExecuted) onToolExecuted(fc.name, fc.args);
+
                             // Tool logic identical, but executed silently
                             if (fc.name === 'checkMessages') { /* ... */ }
                             else if (fc.name === 'controlMedia') {
@@ -422,7 +427,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         });
         currentSessionRef.current = session;
     } catch (e: any) { setError(e.message); setConnectionState('error'); }
-  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isLowLatencyMode, isEcoMode]);
+  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isLowLatencyMode, isEcoMode, onToolExecuted]);
 
   useEffect(() => {
     if (connectionState === 'connected' && activeConnectionParamsRef.current && !isReconnectingRef.current) {

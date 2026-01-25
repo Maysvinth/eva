@@ -1,4 +1,3 @@
-
 import { useState, useRef, useCallback } from 'react';
 import { Peer, DataConnection } from 'peerjs';
 import { DeviceRole, RemoteCommandPacket } from '../types';
@@ -60,7 +59,11 @@ const APP_PROTOCOL_MAP: Record<string, string> = {
   'terminal': 'wt:', // Windows Terminal
 };
 
-export const useDevicePairing = () => {
+interface UseDevicePairingProps {
+  onCommandReceived?: (action: string, query: string) => void;
+}
+
+export const useDevicePairing = ({ onCommandReceived }: UseDevicePairingProps = {}) => {
   const [role, setRole] = useState<DeviceRole>('standalone');
   const [peerId, setPeerId] = useState<string>('');
   const [pairingCode, setPairingCode] = useState<string>('');
@@ -90,6 +93,10 @@ export const useDevicePairing = () => {
         const packet = data as RemoteCommandPacket;
         if (packet.type === 'COMMAND') {
            const { action, query } = packet.payload;
+           
+           if (onCommandReceived) {
+               onCommandReceived(action, query);
+           }
            
            try {
              if (action === 'open_url') {
@@ -147,7 +154,7 @@ export const useDevicePairing = () => {
         connRef.current = null;
       });
     });
-  }, []);
+  }, [onCommandReceived]);
 
   const connectToHost = useCallback((targetCode: string) => {
     if (peerRef.current) peerRef.current.destroy();

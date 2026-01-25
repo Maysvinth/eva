@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable, Leaf, Lock } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable, Leaf, Lock, Globe, Music, Youtube, AppWindow, PlayCircle, CheckCircle } from 'lucide-react';
 import AvatarVisualizer from './components/AvatarVisualizer';
 import { ChatHistory } from './components/ChatHistory';
 import { useGeminiLive } from './hooks/useGeminiLive';
@@ -39,10 +39,29 @@ const App: React.FC = () => {
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
   const [isLowLatency, setIsLowLatency] = useState<boolean>(() => localStorage.getItem('eva_low_latency') === 'true');
-  // Eco Mode is now standard behavior for stability
   const [isEcoMode, setIsEcoMode] = useState<boolean>(true);
 
-  const { role, pairingCode, connectionStatus: p2pStatus, initializeHost, connectToHost, sendCommand, disconnectP2P } = useDevicePairing();
+  // Notification / Feedback State
+  const [feedback, setFeedback] = useState<{ message: string, icon: React.ReactNode, type: 'success' | 'info' } | null>(null);
+  const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showFeedback = useCallback((message: string, icon: React.ReactNode = <Activity className="w-4 h-4"/>, type: 'success' | 'info' = 'info') => {
+      if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+      setFeedback({ message, icon, type });
+      feedbackTimeoutRef.current = setTimeout(() => setFeedback(null), 3000);
+  }, []);
+
+  const handleRemoteCommand = useCallback((action: string, query: string) => {
+       if (action === 'open_url') showFeedback(`Remote: Opening Link`, <Globe className="w-4 h-4 text-cyan-400"/>);
+       else if (action === 'play_music') showFeedback(`Remote: Playing ${query}`, <Music className="w-4 h-4 text-purple-400"/>);
+       else if (action === 'media_control') showFeedback(`Remote Control: ${query.toUpperCase()}`, <PlayCircle className="w-4 h-4 text-green-400"/>);
+       else if (action === 'open_app') showFeedback(`Remote: Launching ${query}`, <AppWindow className="w-4 h-4 text-blue-400"/>);
+       else if (action === 'play_video') showFeedback(`Remote: Playing Video`, <Youtube className="w-4 h-4 text-red-400"/>);
+  }, [showFeedback]);
+
+  const { role, pairingCode, connectionStatus: p2pStatus, initializeHost, connectToHost, sendCommand, disconnectP2P } = useDevicePairing({
+      onCommandReceived: handleRemoteCommand
+  });
 
   const volumeRef = useRef<number>(0);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -91,6 +110,20 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('eva_low_latency', String(isLowLatency)); }, [isLowLatency]);
   useEffect(() => { localStorage.setItem('eva_character_order', JSON.stringify(characterOrder)); }, [characterOrder]);
 
+  const handleToolExecution = useCallback((toolName: string, args: any) => {
+      if (toolName === 'executeRemoteAction') {
+          const action = args.action;
+          const query = args.query;
+          if (action === 'open_url') showFeedback(`Opening: ${query}`, <Globe className="w-4 h-4 text-cyan-400"/>);
+          else if (action === 'play_music') showFeedback(`Music: ${query}`, <Music className="w-4 h-4 text-purple-400"/>);
+          else if (action === 'play_video') showFeedback(`Video: ${query}`, <Youtube className="w-4 h-4 text-red-400"/>);
+          else if (action === 'open_app') showFeedback(`Launching: ${query}`, <AppWindow className="w-4 h-4 text-blue-400"/>);
+      } else if (toolName === 'controlMedia') {
+          const cmd = args.command;
+          showFeedback(`Media: ${cmd.toUpperCase()}`, <PlayCircle className="w-4 h-4 text-green-400"/>);
+      }
+  }, [showFeedback]);
+
   const { connect, disconnect, connectionState, messages, error, isStandby } = useGeminiLive({
     character: activeCharacter,
     onVisualizerUpdate: (vol) => { volumeRef.current = vol; },
@@ -101,6 +134,7 @@ const App: React.FC = () => {
     stopWord: stopWord,
     isLowLatencyMode: isLowLatency,
     isEcoMode: isEcoMode,
+    onToolExecuted: handleToolExecution,
     onMediaCommand: (cmd) => {
         if (cmd === 'play') setIsMediaPlaying(true);
         if (cmd === 'pause' || cmd === 'stop') setIsMediaPlaying(false);
@@ -161,8 +195,21 @@ const App: React.FC = () => {
   const isRemote = role === 'remote';
 
   return (
-    <div className="h-[100dvh] bg-[#050505] text-white flex flex-col font-sans selection:bg-cyan-500/30 overflow-hidden">
+    <div className="h-[100dvh] bg-[#050505] text-white flex flex-col font-sans selection:bg-cyan-500/30 overflow-hidden relative">
       
+      {/* Feedback Toast Notification */}
+      {feedback && (
+          <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-[100] animate-fade-in-up">
+              <div className="bg-gray-900/90 backdrop-blur-md border border-gray-700/50 rounded-full px-6 py-3 shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center space-x-3">
+                  <div className="p-1.5 rounded-full bg-gray-800 border border-gray-700">
+                      {feedback.icon}
+                  </div>
+                  <span className="text-sm font-mono text-gray-200 tracking-wide">{feedback.message}</span>
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_5px_currentColor]" />
+              </div>
+          </div>
+      )}
+
       {/* Header */}
       <header className="h-16 border-b border-gray-900 flex items-center justify-between px-3 md:px-6 bg-black/50 backdrop-blur-md fixed w-full z-50 top-0">
         <div className="flex items-center space-x-2">
