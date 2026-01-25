@@ -72,9 +72,10 @@ interface UseGeminiLiveProps {
   wakeWord?: string;
   stopWord?: string;
   onMediaCommand?: (command: string) => void;
+  isLowLatencyMode?: boolean;
 }
 
-export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand }: UseGeminiLiveProps) => {
+export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand, isLowLatencyMode = false }: UseGeminiLiveProps) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingUserText, setStreamingUserText] = useState<string>("");
@@ -91,7 +92,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const streamRef = useRef<MediaStream | null>(null);
   const currentSessionRef = useRef<any>(null);
   
-  const activeConnectionParamsRef = useRef<{ id: string, voiceName: string, wakeWord?: string, stopWord?: string } | null>(null);
+  const activeConnectionParamsRef = useRef<{ id: string, voiceName: string, wakeWord?: string, stopWord?: string, isLowLatency?: boolean } | null>(null);
   const isReconnectingRef = useRef<boolean>(false);
   const isConnectedRef = useRef<boolean>(false);
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
@@ -160,7 +161,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
     setConnectionState('connecting');
     setError(null);
-    activeConnectionParamsRef.current = { id: character.id, voiceName: character.voiceName, wakeWord: wakeWord, stopWord: stopWord };
+    activeConnectionParamsRef.current = { id: character.id, voiceName: character.voiceName, wakeWord: wakeWord, stopWord: stopWord, isLowLatency: isLowLatencyMode };
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }});
@@ -179,11 +180,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         
         const finalSystemInstruction = `You are EVA. Voice: ${character.voiceName}. 
         PROTOCOLS:
-        1. SPEED: Be extremely concise. 1-2 sentences max.
-        2. KNOWLEDGE: Use Google Search to answer questions about latest news, events, weather, or facts.
-        3. COMMANDS: Use 'executeRemoteAction' ONLY if user says OPEN, LAUNCH, PLAY.
-        4. MEDIA: Use 'controlMedia' ONLY for PAUSE, RESUME, STOP, PLAY.
-        ${wakeWord ? `5. WAKE: Listen for "${wakeWord}".` : ""}
+        1. SPEED: RAPID-FIRE. Zero latency. Speak INSTANTLY.
+        2. CONCISENESS: 1 sentence max. No filler words.
+        3. BEHAVIOR: Conversational, fast-paced, interruptible.
+        4. KNOWLEDGE: Use Google Search for news/facts.
+        5. COMMANDS: 'executeRemoteAction' for OPEN, LAUNCH, PLAY.
+        6. MEDIA: 'controlMedia' for PAUSE, RESUME, STOP.
+        ${wakeWord ? `7. WAKE: Listen for "${wakeWord}".` : ""}
         ${character.systemInstruction}`;
 
         const config = {
@@ -217,7 +220,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     groundingSourcesRef.current = [];
                     
                     const source = audioCtxInput.createMediaStreamSource(stream);
-                    const processor = audioCtxInput.createScriptProcessor(512, 1, 1);
+                    
+                    // BUFFER SIZE LOGIC
+                    // isLowLatencyMode (Wired/Turbo) -> 512 samples (~32ms) -> Faster input detection.
+                    // Normal Mode -> 1024 samples (~64ms) -> Safer for WiFi/4G.
+                    const bufferSize = isLowLatencyMode ? 512 : 1024;
+                    const processor = audioCtxInput.createScriptProcessor(bufferSize, 1, 1);
                     
                     sourceNodeRef.current = source;
                     processorNodeRef.current = processor;
@@ -234,9 +242,10 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       const inputData = e.inputBuffer.getChannelData(0);
                       
                       let sum = 0;
+                      // Sample sparser for visualizer to save CPU
                       const len = inputData.length;
-                      for(let i=0; i<len; i+=10) sum += Math.abs(inputData[i]); 
-                      const vol = (sum / (len/10)) * 5; 
+                      for(let i=0; i<len; i+=20) sum += Math.abs(inputData[i]); 
+                      const vol = (sum / (len/20)) * 5; 
                       onVisualizerUpdate(vol); 
                       
                       if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
@@ -258,7 +267,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     if (serverContent?.interrupted) {
                         stopAllAudio();
                         if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
-                        modelOutputBufferRef.current = ""; // Clear buffer on interruption
+                        modelOutputBufferRef.current = ""; 
                         return; 
                     }
 
@@ -279,7 +288,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     }
 
                     // --- HANDLE MODEL TRANSCRIPT (Sources & Text) ---
-                    // Capture grounding metadata for sources
                     const anyContent = serverContent as any;
                     if (anyContent?.modelTurn?.groundingMetadata?.groundingChunks) {
                          const chunks = anyContent.modelTurn.groundingMetadata.groundingChunks;
@@ -288,12 +296,10 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                              .filter(Boolean);
                          if (newSources.length > 0) {
                              const combined = [...groundingSourcesRef.current, ...newSources];
-                             // Dedup
                              groundingSourcesRef.current = Array.from(new Map(combined.map(item => [item.uri, item])).values());
                          }
                     }
 
-                    // Capture model text output
                     if (serverContent?.outputTranscription?.text) {
                         const text = serverContent.outputTranscription.text;
                         setStreamingModelText(prev => prev + text);
@@ -329,7 +335,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                             });
                         }
                         
-                        // Reset Buffers
                         transcriptBufferRef.current = "";
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];
@@ -368,8 +373,15 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         requestAnimationFrame(updateVisualizer);
 
                         const currentTime = outputContextRef.current.currentTime;
+                        
+                        // JITTER BUFFER LOGIC
+                        // isLowLatencyMode (Wired) -> 20ms cushion. (Very aggressive)
+                        // Normal -> 60ms cushion. (Safe)
+                        // This determines how long we wait before playing a received chunk to ensure smoothness.
+                        const jitterCushion = isLowLatencyMode ? 0.02 : 0.06;
+
                         if (scheduledEndTimeRef.current < currentTime) {
-                            scheduledEndTimeRef.current = currentTime + 0.04;
+                            scheduledEndTimeRef.current = currentTime + jitterCushion; 
                         }
                         
                         source.start(scheduledEndTimeRef.current);
@@ -468,19 +480,19 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         });
         currentSessionRef.current = session;
     } catch (e: any) { setError(e.message); setConnectionState('error'); }
-  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby]);
+  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isLowLatencyMode]);
 
   useEffect(() => {
     if (connectionState === 'connected' && activeConnectionParamsRef.current && !isReconnectingRef.current) {
         const active = activeConnectionParamsRef.current;
-        if (active.id !== character.id || active.voiceName !== character.voiceName || active.wakeWord !== wakeWord || active.stopWord !== stopWord) {
+        if (active.id !== character.id || active.voiceName !== character.voiceName || active.wakeWord !== wakeWord || active.stopWord !== stopWord || active.isLowLatency !== isLowLatencyMode) {
             isReconnectingRef.current = true;
             disconnect().then(() => {
                 setTimeout(() => { connect().finally(() => { isReconnectingRef.current = false; }); }, 200); 
             });
         }
     }
-  }, [character, connect, disconnect, connectionState, wakeWord, stopWord]);
+  }, [character, connect, disconnect, connectionState, wakeWord, stopWord, isLowLatencyMode]);
 
   return { connect, disconnect, connectionState, messages, streamingUserText, streamingModelText, error, isStandby };
 };

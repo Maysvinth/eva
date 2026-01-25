@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon } from 'lucide-react';
+import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable } from 'lucide-react';
 import AvatarVisualizer from './components/AvatarVisualizer';
 import { ChatHistory } from './components/ChatHistory';
 import { useGeminiLive } from './hooks/useGeminiLive';
@@ -38,6 +38,7 @@ const App: React.FC = () => {
   const [wakeWord, setWakeWord] = useState<string>(() => localStorage.getItem('eva_wake_word') || '');
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
+  const [isLowLatency, setIsLowLatency] = useState<boolean>(() => localStorage.getItem('eva_low_latency') === 'true');
 
   const { role, pairingCode, connectionStatus: p2pStatus, initializeHost, connectToHost, sendCommand, disconnectP2P } = useDevicePairing();
 
@@ -58,6 +59,7 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('eva_always_on', String(alwaysOn)); }, [alwaysOn]);
   useEffect(() => { localStorage.setItem('eva_wake_word', wakeWord); }, [wakeWord]);
   useEffect(() => { localStorage.setItem('eva_stop_word', stopWord); }, [stopWord]);
+  useEffect(() => { localStorage.setItem('eva_low_latency', String(isLowLatency)); }, [isLowLatency]);
   useEffect(() => { localStorage.setItem('eva_character_order', JSON.stringify(characterOrder)); }, [characterOrder]);
 
   const { connect, disconnect, connectionState, messages, streamingUserText, streamingModelText, error, isStandby } = useGeminiLive({
@@ -68,6 +70,7 @@ const App: React.FC = () => {
     autoReconnect: alwaysOn,
     wakeWord: wakeWord,
     stopWord: stopWord,
+    isLowLatencyMode: isLowLatency,
     onMediaCommand: (cmd) => {
         if (cmd === 'play') setIsMediaPlaying(true);
         if (cmd === 'pause' || cmd === 'stop') setIsMediaPlaying(false);
@@ -83,6 +86,7 @@ const App: React.FC = () => {
   };
   
   const toggleAlwaysOn = () => setAlwaysOn(prev => !prev);
+  const toggleLowLatency = () => setIsLowLatency(prev => !prev);
 
   const switchCharacter = (char: CharacterProfile) => {
       const overrides = JSON.parse(localStorage.getItem('eva_voice_overrides') || '{}');
@@ -189,12 +193,12 @@ const App: React.FC = () => {
            
            {/* Visualizer Container */}
            <div className="flex-1 flex items-center justify-center relative z-10 overflow-hidden">
-              <div className="w-[260px] h-[260px] sm:w-[300px] sm:h-[300px] md:w-[400px] md:h-[400px] relative transition-all duration-500">
+              <div className="w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:w-[400px] md:h-[400px] relative transition-all duration-500">
                  {/* Visualizer Borders */}
-                 <div className={`absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
-                 <div className={`absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
-                 <div className={`absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
-                 <div className={`absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
+                 <div className={`absolute top-0 left-0 w-6 h-6 sm:w-8 sm:h-8 border-t-2 border-l-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
+                 <div className={`absolute top-0 right-0 w-6 h-6 sm:w-8 sm:h-8 border-t-2 border-r-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
+                 <div className={`absolute bottom-0 left-0 w-6 h-6 sm:w-8 sm:h-8 border-b-2 border-l-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
+                 <div className={`absolute bottom-0 right-0 w-6 h-6 sm:w-8 sm:h-8 border-b-2 border-r-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
                  
                  {/* Voice Tag HUD */}
                  <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 text-[10px] font-mono tracking-widest bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-${activeCharacter.themeColor}-500/30 shadow-[0_0_15px_rgba(0,0,0,0.5)] transition-all duration-500 flex items-center space-x-2 whitespace-nowrap z-20`}>
@@ -271,17 +275,26 @@ const App: React.FC = () => {
                      )}
                   </button>
 
-                  <button 
-                      onClick={toggleAlwaysOn}
-                      className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-all duration-300 ${
-                          alwaysOn 
-                           ? `bg-${activeCharacter.themeColor}-900/20 border-${activeCharacter.themeColor}-500 text-${activeCharacter.themeColor}-400 shadow-[0_0_10px_rgba(0,0,0,0.3)]` 
-                           : 'bg-gray-900 border-gray-700 text-gray-500 hover:bg-gray-800'
-                      }`}
-                  >
-                      <Power className={`w-3 h-3 ${alwaysOn ? 'fill-current' : ''}`} />
-                      <span>ALWAYS ON: {alwaysOn ? 'ON' : 'OFF'}</span>
-                  </button>
+                  <div className="flex gap-2">
+                      <button 
+                          onClick={toggleAlwaysOn}
+                          className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-all duration-300 ${
+                              alwaysOn 
+                              ? `bg-${activeCharacter.themeColor}-900/20 border-${activeCharacter.themeColor}-500 text-${activeCharacter.themeColor}-400 shadow-[0_0_10px_rgba(0,0,0,0.3)]` 
+                              : 'bg-gray-900 border-gray-700 text-gray-500 hover:bg-gray-800'
+                          }`}
+                      >
+                          <Power className={`w-3 h-3 ${alwaysOn ? 'fill-current' : ''}`} />
+                          <span>ALWAYS ON</span>
+                      </button>
+
+                      {isLowLatency && (
+                          <div className="flex items-center space-x-1 px-3 py-1.5 rounded-full border border-yellow-500/50 bg-yellow-900/20 text-yellow-400 text-xs font-mono">
+                              <Zap className="w-3 h-3 fill-current" />
+                              <span>TURBO</span>
+                          </div>
+                      )}
+                  </div>
               </div>
 
               {/* Media Control Widget */}
@@ -336,7 +349,7 @@ const App: React.FC = () => {
              </div>
              <div className="flex space-x-4 text-xs text-gray-500 font-mono">
                 <span className="flex items-center"><Cloud className="w-3 h-3 mr-1" /> GEMINI LIVE</span>
-                <span className="flex items-center"><Zap className="w-3 h-3 mr-1" /> LOW LATENCY</span>
+                <span className="flex items-center"><Zap className="w-3 h-3 mr-1" /> {isLowLatency ? 'ULTRA LOW LATENCY' : 'STANDARD LATENCY'}</span>
              </div>
           </div>
 
@@ -441,6 +454,19 @@ const App: React.FC = () => {
                                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${alwaysOn ? 'translate-x-6' : 'translate-x-0'}`} />
                                </button>
                            </div>
+
+                           <div className="p-4 bg-yellow-900/10 rounded border border-yellow-700/30 flex items-center justify-between">
+                               <div>
+                                   <div className="font-bold text-sm text-yellow-500 flex items-center"><Zap className="w-4 h-4 mr-2"/> Turbo / Wired Mode</div>
+                                   <div className="text-xs text-gray-400">Optimizes for USB Tethering or high-speed connections.<br/>Reduces latency buffers for instant response.</div>
+                               </div>
+                               <button 
+                                 onClick={toggleLowLatency}
+                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${isLowLatency ? 'bg-yellow-600' : 'bg-gray-700'}`}
+                               >
+                                   <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isLowLatency ? 'translate-x-6' : 'translate-x-0'}`} />
+                               </button>
+                           </div>
                        </div>
                    </div>
                )}
@@ -518,6 +544,19 @@ const App: React.FC = () => {
                                STATUS: {p2pStatus.toUpperCase()}
                            </span>
                        </div>
+
+                        {/* Wired Connection Guide */}
+                        <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700 mb-6">
+                            <div className="flex items-center text-cyan-400 mb-2 font-bold text-sm">
+                                <Cable className="w-4 h-4 mr-2" /> WIRED USB CONNECTION GUIDE
+                            </div>
+                            <ol className="list-decimal list-inside text-xs text-gray-400 space-y-1 font-mono">
+                                <li>Connect Phone to Laptop via USB Data Cable.</li>
+                                <li>Phone Settings: Enable <strong>USB Tethering</strong> (Hotspot & Tethering).</li>
+                                <li>Laptop: Ensure network is connected via the NDIS/Ethernet adapter.</li>
+                                <li>Go to "General" tab and enable <strong>Turbo / Wired Mode</strong> for zero latency.</li>
+                            </ol>
+                        </div>
 
                        {role === 'standalone' && (
                            <div className="grid grid-cols-1 gap-6">
