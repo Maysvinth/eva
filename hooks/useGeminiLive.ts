@@ -453,7 +453,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                     if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
                                 }
                             } 
-                            session.sendToolResponse({ functionResponses: { id: fc.id, name: fc.name, response: result } });
+                            session.sendToolResponse({ 
+                              functionResponses: [{ 
+                                id: fc.id || "", 
+                                name: fc.name, 
+                                response: result 
+                              }] 
+                            });
                         }
                     }
                 },
