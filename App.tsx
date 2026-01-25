@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable } from 'lucide-react';
+import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable, Leaf, Lock } from 'lucide-react';
 import AvatarVisualizer from './components/AvatarVisualizer';
 import { ChatHistory } from './components/ChatHistory';
 import { useGeminiLive } from './hooks/useGeminiLive';
@@ -39,10 +39,40 @@ const App: React.FC = () => {
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
   const [isLowLatency, setIsLowLatency] = useState<boolean>(() => localStorage.getItem('eva_low_latency') === 'true');
+  const [isEcoMode, setIsEcoMode] = useState<boolean>(() => localStorage.getItem('eva_eco_mode') === 'true');
 
   const { role, pairingCode, connectionStatus: p2pStatus, initializeHost, connectToHost, sendCommand, disconnectP2P } = useDevicePairing();
 
   const volumeRef = useRef<number>(0);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+  // Wake Lock Implementation for "Always On" devices
+  // This prevents the screen from fully sleeping, which keeps the CPU governor from throttling the web app.
+  useEffect(() => {
+    const requestWakeLock = async () => {
+        if ('wakeLock' in navigator && alwaysOn) {
+            try {
+                const lock = await navigator.wakeLock.request('screen');
+                wakeLockRef.current = lock;
+                lock.addEventListener('release', () => {
+                    // Re-acquire if released (e.g. tab switch)
+                    if (alwaysOn && document.visibilityState === 'visible') requestWakeLock();
+                });
+            } catch (err) {
+                console.log('Wake Lock denied:', err);
+            }
+        }
+    };
+
+    if (alwaysOn) {
+        requestWakeLock();
+    } else {
+        wakeLockRef.current?.release().catch(() => {});
+        wakeLockRef.current = null;
+    }
+
+    return () => { wakeLockRef.current?.release().catch(() => {}); };
+  }, [alwaysOn]);
 
   useEffect(() => {
     const overrides = JSON.parse(localStorage.getItem('eva_voice_overrides') || '{}');
@@ -60,6 +90,7 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('eva_wake_word', wakeWord); }, [wakeWord]);
   useEffect(() => { localStorage.setItem('eva_stop_word', stopWord); }, [stopWord]);
   useEffect(() => { localStorage.setItem('eva_low_latency', String(isLowLatency)); }, [isLowLatency]);
+  useEffect(() => { localStorage.setItem('eva_eco_mode', String(isEcoMode)); }, [isEcoMode]);
   useEffect(() => { localStorage.setItem('eva_character_order', JSON.stringify(characterOrder)); }, [characterOrder]);
 
   const { connect, disconnect, connectionState, messages, streamingUserText, streamingModelText, error, isStandby } = useGeminiLive({
@@ -71,6 +102,7 @@ const App: React.FC = () => {
     wakeWord: wakeWord,
     stopWord: stopWord,
     isLowLatencyMode: isLowLatency,
+    isEcoMode: isEcoMode,
     onMediaCommand: (cmd) => {
         if (cmd === 'play') setIsMediaPlaying(true);
         if (cmd === 'pause' || cmd === 'stop') setIsMediaPlaying(false);
@@ -87,6 +119,7 @@ const App: React.FC = () => {
   
   const toggleAlwaysOn = () => setAlwaysOn(prev => !prev);
   const toggleLowLatency = () => setIsLowLatency(prev => !prev);
+  const toggleEcoMode = () => setIsEcoMode(prev => !prev);
 
   const switchCharacter = (char: CharacterProfile) => {
       const overrides = JSON.parse(localStorage.getItem('eva_voice_overrides') || '{}');
@@ -227,6 +260,7 @@ const App: React.FC = () => {
                    volumeRef={volumeRef} 
                    color={activeCharacter.visualizerColor}
                    isActive={connectionState === 'connected' && !isStandby}
+                   ecoMode={isEcoMode}
                  />
               </div>
            </div>
@@ -275,7 +309,7 @@ const App: React.FC = () => {
                      )}
                   </button>
 
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 justify-center">
                       <button 
                           onClick={toggleAlwaysOn}
                           className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-all duration-300 ${
@@ -284,7 +318,7 @@ const App: React.FC = () => {
                               : 'bg-gray-900 border-gray-700 text-gray-500 hover:bg-gray-800'
                           }`}
                       >
-                          <Power className={`w-3 h-3 ${alwaysOn ? 'fill-current' : ''}`} />
+                          <Lock className={`w-3 h-3 ${alwaysOn ? 'fill-current' : ''}`} />
                           <span>ALWAYS ON</span>
                       </button>
 
@@ -292,6 +326,13 @@ const App: React.FC = () => {
                           <div className="flex items-center space-x-1 px-3 py-1.5 rounded-full border border-yellow-500/50 bg-yellow-900/20 text-yellow-400 text-xs font-mono">
                               <Zap className="w-3 h-3 fill-current" />
                               <span>TURBO</span>
+                          </div>
+                      )}
+                      
+                      {isEcoMode && (
+                          <div className="flex items-center space-x-1 px-3 py-1.5 rounded-full border border-green-500/50 bg-green-900/20 text-green-400 text-xs font-mono">
+                              <Leaf className="w-3 h-3 fill-current" />
+                              <span>ECO</span>
                           </div>
                       )}
                   </div>
@@ -349,7 +390,7 @@ const App: React.FC = () => {
              </div>
              <div className="flex space-x-4 text-xs text-gray-500 font-mono">
                 <span className="flex items-center"><Cloud className="w-3 h-3 mr-1" /> GEMINI LIVE</span>
-                <span className="flex items-center"><Zap className="w-3 h-3 mr-1" /> {isLowLatency ? 'ULTRA LOW LATENCY' : 'STANDARD LATENCY'}</span>
+                <span className="flex items-center"><Zap className="w-3 h-3 mr-1" /> {isLowLatency ? 'ULTRA LOW LATENCY' : 'STANDARD'}</span>
              </div>
           </div>
 
@@ -444,8 +485,8 @@ const App: React.FC = () => {
 
                            <div className="p-4 bg-gray-800/30 rounded border border-gray-800 flex items-center justify-between">
                                <div>
-                                   <div className="font-bold text-sm text-gray-200">Always On Mode</div>
-                                   <div className="text-xs text-gray-500">Automatically reconnect if disconnected.</div>
+                                   <div className="font-bold text-sm text-gray-200">Always On / Wake Lock</div>
+                                   <div className="text-xs text-gray-500">Prevents Android "Doze" mode. Keep screen active.</div>
                                </div>
                                <button 
                                  onClick={() => setAlwaysOn(!alwaysOn)}
@@ -465,6 +506,19 @@ const App: React.FC = () => {
                                  className={`w-12 h-6 rounded-full p-1 transition-colors ${isLowLatency ? 'bg-yellow-600' : 'bg-gray-700'}`}
                                >
                                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isLowLatency ? 'translate-x-6' : 'translate-x-0'}`} />
+                               </button>
+                           </div>
+
+                           <div className="p-4 bg-green-900/10 rounded border border-green-700/30 flex items-center justify-between">
+                               <div>
+                                   <div className="font-bold text-sm text-green-500 flex items-center"><Leaf className="w-4 h-4 mr-2"/> Eco / Stability Mode</div>
+                                   <div className="text-xs text-gray-400">Essential for older devices (Galaxy M2, etc).<br/>Reduces animation FPS (20fps) and prunes memory to prevent crashes.</div>
+                               </div>
+                               <button 
+                                 onClick={toggleEcoMode}
+                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${isEcoMode ? 'bg-green-600' : 'bg-gray-700'}`}
+                               >
+                                   <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isEcoMode ? 'translate-x-6' : 'translate-x-0'}`} />
                                </button>
                            </div>
                        </div>

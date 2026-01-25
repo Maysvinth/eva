@@ -4,12 +4,14 @@ interface AvatarVisualizerProps {
   volumeRef: React.MutableRefObject<number>;
   color: string;
   isActive: boolean;
+  ecoMode?: boolean;
 }
 
-const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ volumeRef, color, isActive }) => {
+const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ volumeRef, color, isActive, ecoMode = false }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number | null>(null);
   const ringsRef = useRef<any[]>([]);
+  const lastFrameTimeRef = useRef<number>(0);
   
   // Convert Tailwind color name to hex roughly for canvas
   const getColorHex = (c: string) => {
@@ -33,7 +35,19 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ volumeRef, color, i
         }
     }
 
-    const render = () => {
+    const render = (time: number) => {
+      // FPS Throttling for Eco Mode
+      // Eco Mode = 20 FPS (50ms interval)
+      // Normal Mode = 60 FPS (16ms interval)
+      const targetInterval = ecoMode ? 50 : 16; 
+      const delta = time - lastFrameTimeRef.current;
+      
+      if (delta < targetInterval) {
+          requestRef.current = requestAnimationFrame(render);
+          return;
+      }
+      lastFrameTimeRef.current = time - (delta % targetInterval);
+
       // Optimization: Check if canvas size actually changed before setting width/height
       // Setting width/height clears the canvas context automatically
       if (canvas.width !== canvas.offsetWidth || canvas.height !== canvas.offsetHeight) {
@@ -110,12 +124,12 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ volumeRef, color, i
       requestRef.current = requestAnimationFrame(render);
     };
 
-    render();
+    requestRef.current = requestAnimationFrame(render);
 
     return () => {
       if (requestRef.current !== null) cancelAnimationFrame(requestRef.current);
     };
-  }, [color, isActive, volumeRef]); 
+  }, [color, isActive, volumeRef, ecoMode]); 
 
   return (
     <canvas 

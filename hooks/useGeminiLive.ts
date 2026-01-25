@@ -73,9 +73,10 @@ interface UseGeminiLiveProps {
   stopWord?: string;
   onMediaCommand?: (command: string) => void;
   isLowLatencyMode?: boolean;
+  isEcoMode?: boolean;
 }
 
-export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand, isLowLatencyMode = false }: UseGeminiLiveProps) => {
+export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand, isLowLatencyMode = false, isEcoMode = false }: UseGeminiLiveProps) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingUserText, setStreamingUserText] = useState<string>("");
@@ -313,7 +314,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         
                         if (userText || modelText) {
                             setMessages(prev => {
-                                const newMsgs = [...prev];
+                                let newMsgs = [...prev];
                                 if (userText) {
                                     newMsgs.push({
                                         id: Date.now() + '_user',
@@ -331,6 +332,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                         sources: groundingSourcesRef.current.length > 0 ? [...groundingSourcesRef.current] : undefined
                                     });
                                 }
+                                
+                                // MEMORY PRUNING FOR ECO MODE
+                                // Keep only last 25 messages if eco mode is active to prevent OOM on low-RAM devices
+                                if (isEcoMode && newMsgs.length > 25) {
+                                    newMsgs = newMsgs.slice(newMsgs.length - 25);
+                                }
+                                
                                 return newMsgs;
                             });
                         }
@@ -480,7 +488,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         });
         currentSessionRef.current = session;
     } catch (e: any) { setError(e.message); setConnectionState('error'); }
-  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isLowLatencyMode]);
+  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isLowLatencyMode, isEcoMode]);
 
   useEffect(() => {
     if (connectionState === 'connected' && activeConnectionParamsRef.current && !isReconnectingRef.current) {
