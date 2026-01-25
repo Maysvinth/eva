@@ -67,12 +67,14 @@ const App: React.FC = () => {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Wake Lock Implementation for "Always On" devices
+  // This is CRITICAL for preventing Android from killing the browser tab
   useEffect(() => {
     const requestWakeLock = async () => {
         if ('wakeLock' in navigator && alwaysOn) {
             try {
                 const lock = await navigator.wakeLock.request('screen');
                 wakeLockRef.current = lock;
+                // Re-acquire lock if visibility changes (user switches tabs briefly)
                 lock.addEventListener('release', () => {
                     if (alwaysOn && document.visibilityState === 'visible') requestWakeLock();
                 });
@@ -89,6 +91,7 @@ const App: React.FC = () => {
         wakeLockRef.current = null;
     }
 
+    // Cleanup on unmount
     return () => { wakeLockRef.current?.release().catch(() => {}); };
   }, [alwaysOn]);
 

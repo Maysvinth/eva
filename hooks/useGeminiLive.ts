@@ -4,13 +4,22 @@ import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData } from '../utils/a
 import { CharacterProfile, ConnectionState, Message } from '../types';
 
 // Supported Voices Map
+// Maps internal app voice names to Gemini API prebuilt voices
 const SAFE_VOICE_MAP: Record<string, string> = {
+  // Originals
   'Puck': 'Puck', 'Charon': 'Charon', 'Fenrir': 'Fenrir', 'Lynx': 'Fenrir', 'Orion': 'Charon',
   'Kore': 'Kore', 'Zephyr': 'Zephyr', 'Aoede': 'Zephyr', 'Leda': 'Kore', 'Vega': 'Zephyr',
+  // Anime Generic
   'Kael': 'Fenrir', 'Ryu': 'Puck', 'Atlas': 'Charon', 'Neo': 'Puck', 'Dante': 'Fenrir',
   'Raiden': 'Fenrir', 'Haruto': 'Puck', 'Shinji': 'Puck', 'Ghost': 'Charon', 'Blitz': 'Fenrir',
   'Luna': 'Zephyr', 'Solaris': 'Kore', 'Nova': 'Zephyr', 'Aria': 'Zephyr', 'Viper': 'Kore',
-  'Miko': 'Kore', 'Yuki': 'Zephyr', 'Hana': 'Puck', 'Pixie': 'Puck', 'Siren': 'Kore'
+  'Miko': 'Kore', 'Yuki': 'Zephyr', 'Hana': 'Puck', 'Pixie': 'Puck', 'Siren': 'Kore',
+  // Oshi no Ko Specific Mappings
+  'Ai': 'Aoede',     // High pitched, energetic, confident
+  'Aqua': 'Charon',  // Deep, calm, serious
+  'Ruby': 'Puck',    // Playful, energetic, slightly chaotic
+  'Kana': 'Fenrir',  // Expressive, intense (Tsundere vibes)
+  'Akane': 'Leda'    // Soft spoken, intellectual, method actor
 };
 
 const timeTool: FunctionDeclaration = {
@@ -80,7 +89,6 @@ interface UseGeminiLiveProps {
 export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand, onToolExecuted, isLowLatencyMode = false, isEcoMode = false }: UseGeminiLiveProps) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [messages, setMessages] = useState<Message[]>([]);
-  // Streaming text states removed to reduce render load
   const [error, setError] = useState<string | null>(null);
   const [isStandby, setIsStandby] = useState(false);
   const isStandbyRef = useRef(false);
@@ -96,24 +104,33 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const activeConnectionParamsRef = useRef<{ id: string, voiceName: string, wakeWord?: string, stopWord?: string, isLowLatency?: boolean } | null>(null);
   const isReconnectingRef = useRef<boolean>(false);
   const isConnectedRef = useRef<boolean>(false);
+  
+  // Use a Set for active sources for easier management, but we need to be careful with memory
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const autoReconnectTimerRef = useRef<any>(null);
   const lastSpeechTimeRef = useRef<number>(Date.now());
   const standbyCheckIntervalRef = useRef<any>(null);
+  const heartbeatIntervalRef = useRef<any>(null);
   
   // Buffers
   const transcriptBufferRef = useRef<string>("");
   const modelOutputBufferRef = useRef<string>("");
   const groundingSourcesRef = useRef<{ title: string; uri: string }[]>([]);
-  const audioChunksBufferRef = useRef<string[]>([]); // Buffer for audio chunks (base64)
+  
+  // Audio Queue Management
+  const audioChunksBufferRef = useRef<string[]>([]); 
+  const isProcessingAudioRef = useRef<boolean>(false);
 
   useEffect(() => { isStandbyRef.current = isStandby; }, [isStandby]);
 
   const stopAllAudio = useCallback(() => {
-    activeSourcesRef.current.forEach(source => { try { source.stop(); } catch (e) {} });
+    activeSourcesRef.current.forEach(source => { 
+        try { source.stop(); source.disconnect(); } catch (e) {} 
+    });
     activeSourcesRef.current = [];
     if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
-    audioChunksBufferRef.current = []; // Clear buffer on stop
+    audioChunksBufferRef.current = []; // Clear buffer
+    isProcessingAudioRef.current = false; // Reset processing lock
   }, []);
 
   const enterStandby = useCallback(() => {
@@ -133,6 +150,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     isConnectedRef.current = false;
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
     if (standbyCheckIntervalRef.current) clearInterval(standbyCheckIntervalRef.current);
+    if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+    
     if (currentSessionRef.current) { try { currentSessionRef.current.close(); } catch (e) {} currentSessionRef.current = null; }
 
     stopAllAudio();
@@ -140,7 +159,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     transcriptBufferRef.current = "";
     modelOutputBufferRef.current = "";
     groundingSourcesRef.current = [];
-    audioChunksBufferRef.current = [];
     
     if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
     if (processorNodeRef.current) { try { processorNodeRef.current.disconnect(); } catch(e) {} processorNodeRef.current = null; }
@@ -154,35 +172,64 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     scheduledEndTimeRef.current = 0;
   }, [stopAllAudio]);
 
-  // Helper to play the buffered queue of audio
-  const playBufferedAudio = async () => {
-    if (!outputContextRef.current || audioChunksBufferRef.current.length === 0) return;
+  // Serial Audio Processor
+  // This prevents CPU spikes by decoding chunks one-by-one instead of all at once
+  const processAudioQueue = async () => {
+      if (isProcessingAudioRef.current || !outputContextRef.current) return;
+      isProcessingAudioRef.current = true;
 
-    const ctx = outputContextRef.current;
-    const chunks = [...audioChunksBufferRef.current];
-    audioChunksBufferRef.current = []; // Clear buffer
+      try {
+          // If queue is too large (lag), skip to the end to catch up
+          if (audioChunksBufferRef.current.length > 15) {
+              console.warn("Audio buffer overflow, skipping frames to catch up.");
+              audioChunksBufferRef.current = audioChunksBufferRef.current.slice(-5);
+              scheduledEndTimeRef.current = outputContextRef.current.currentTime;
+          }
 
-    // Reset schedule logic for a clean start
-    scheduledEndTimeRef.current = Math.max(ctx.currentTime, scheduledEndTimeRef.current);
+          while (audioChunksBufferRef.current.length > 0) {
+              if (!isConnectedRef.current || isStandbyRef.current) {
+                  audioChunksBufferRef.current = [];
+                  break;
+              }
 
-    for (const chunk of chunks) {
-         try {
-             const audioBuffer = await decodeAudioData(base64ToUint8Array(chunk), ctx, 24000);
-             const source = ctx.createBufferSource();
-             source.buffer = audioBuffer;
-             source.connect(ctx.destination);
-             
-             activeSourcesRef.current.push(source);
-             source.onended = () => {
-                 activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
-             };
+              const chunk = audioChunksBufferRef.current[0];
+              try {
+                  const ctx = outputContextRef.current;
+                  const audioBuffer = await decodeAudioData(base64ToUint8Array(chunk), ctx, 24000);
+                  
+                  // Shift ONLY after successful decode to prevent data loss
+                  audioChunksBufferRef.current.shift();
 
-             source.start(scheduledEndTimeRef.current);
-             scheduledEndTimeRef.current += audioBuffer.duration;
-         } catch(e) {
-             console.error("Audio decode error", e);
-         }
-    }
+                  const source = ctx.createBufferSource();
+                  source.buffer = audioBuffer;
+                  source.connect(ctx.destination);
+                  
+                  // Timing logic
+                  const now = ctx.currentTime;
+                  // If we lagged behind, reset schedule to 'now' (don't play fast catch-up)
+                  if (scheduledEndTimeRef.current < now) {
+                      scheduledEndTimeRef.current = now;
+                  }
+                  
+                  source.start(scheduledEndTimeRef.current);
+                  scheduledEndTimeRef.current += audioBuffer.duration;
+                  
+                  activeSourcesRef.current.push(source);
+                  
+                  // GC: Explicitly disconnect on end
+                  source.onended = () => {
+                      source.disconnect(); 
+                      activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+                  };
+
+              } catch (e) {
+                  console.error("Audio decode error", e);
+                  audioChunksBufferRef.current.shift(); // Remove corrupted chunk
+              }
+          }
+      } finally {
+          isProcessingAudioRef.current = false;
+      }
   };
 
   const connect = useCallback(async () => {
@@ -203,6 +250,19 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         const audioCtxInput = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
         const audioCtxOutput = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
         
+        // --- ANDROID STABILITY: HEARTBEAT ---
+        // Android browsers love to suspend AudioContext to save power. We force it back on.
+        heartbeatIntervalRef.current = setInterval(() => {
+            if (audioCtxOutput.state === 'suspended') { 
+                console.log("Resuming Output Context");
+                audioCtxOutput.resume(); 
+            }
+            if (audioCtxInput.state === 'suspended') {
+                console.log("Resuming Input Context");
+                audioCtxInput.resume();
+            }
+        }, 2000);
+
         if (audioCtxInput.state === 'suspended') await audioCtxInput.resume();
         if (audioCtxOutput.state === 'suspended') await audioCtxOutput.resume();
 
@@ -252,7 +312,9 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     audioChunksBufferRef.current = [];
                     
                     const source = audioCtxInput.createMediaStreamSource(stream);
-                    const bufferSize = 2048; // Larger buffer for stability on low-end devices
+                    
+                    // PERFORMANCE: 4096 buffer for Eco Mode (Low CPU), 2048 for Low Latency
+                    const bufferSize = isEcoMode ? 4096 : 2048;
                     const processor = audioCtxInput.createScriptProcessor(bufferSize, 1, 1);
                     
                     sourceNodeRef.current = source;
@@ -268,12 +330,17 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       if (!isConnectedRef.current || !currentSessionRef.current) return;
                       const inputData = e.inputBuffer.getChannelData(0);
                       
-                      // Minimal Visualizer Update (Low CPU)
+                      // VISUALIZER OPTIMIZATION:
+                      // Downsample heavily to save Main Thread CPU
+                      // Only process every 50th sample
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
+                      
                       if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
-                      onVisualizerUpdate(vol);
+                      
+                      // Don't update visualizer if volume is negligible (saves React renders)
+                      if (vol > 0.01) onVisualizerUpdate(vol);
 
                       try {
                          const blob = pcmToGeminiBlob(inputData, 16000);
@@ -295,7 +362,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         return; 
                     }
 
-                    // --- HANDLE USER TRANSCRIPT (Silent Accumulation) ---
+                    // --- HANDLE USER TRANSCRIPT ---
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
                       transcriptBufferRef.current += (" " + text);
@@ -310,7 +377,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       }
                     }
 
-                    // --- HANDLE MODEL OUTPUT (Silent Accumulation) ---
+                    // --- HANDLE MODEL OUTPUT ---
                     const anyContent = serverContent as any;
                     if (anyContent?.modelTurn?.groundingMetadata?.groundingChunks) {
                          const chunks = anyContent.modelTurn.groundingMetadata.groundingChunks;
@@ -327,15 +394,19 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         modelOutputBufferRef.current += serverContent.outputTranscription.text;
                     }
 
-                    // Buffer Audio Chunks (Do NOT Play Yet)
+                    // Buffer Audio Chunks
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (audioData) {
                         audioChunksBufferRef.current.push(audioData);
+                        // Trigger processing loop
+                        if (!isStandbyRef.current) {
+                            processAudioQueue();
+                        } else {
+                            audioChunksBufferRef.current = [];
+                        }
                     }
 
-                    // --- TURN COMPLETE: EXECUTE UI & AUDIO ---
-                    // Only update UI and Play Audio when server says it's done.
-                    // This ensures "full server-side processing is complete" feel.
+                    // --- TURN COMPLETE ---
                     if (serverContent?.turnComplete) {
                         const userText = transcriptBufferRef.current.trim();
                         const modelText = modelOutputBufferRef.current.trim();
@@ -343,36 +414,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         if (userText || modelText) {
                             setMessages(prev => {
                                 let newMsgs = [...prev];
-                                if (userText) {
-                                    newMsgs.push({
-                                        id: Date.now() + '_user',
-                                        role: 'user',
-                                        text: userText,
-                                        timestamp: new Date()
-                                    });
-                                }
-                                if (modelText) {
-                                    newMsgs.push({
-                                        id: Date.now() + '_model',
-                                        role: 'model',
-                                        text: modelText,
-                                        timestamp: new Date(),
-                                        sources: groundingSourcesRef.current.length > 0 ? [...groundingSourcesRef.current] : undefined
-                                    });
-                                }
-                                // Prune history strictly to max 20 items for low-RAM
-                                if (newMsgs.length > 20) {
-                                    newMsgs = newMsgs.slice(newMsgs.length - 20);
-                                }
+                                if (userText) newMsgs.push({ id: Date.now() + '_user', role: 'user', text: userText, timestamp: new Date() });
+                                if (modelText) newMsgs.push({ id: Date.now() + '_model', role: 'model', text: modelText, timestamp: new Date(), sources: groundingSourcesRef.current.length > 0 ? [...groundingSourcesRef.current] : undefined });
+                                
+                                // MEMORY SAFETY: Prune to last 20 messages
+                                if (newMsgs.length > 20) newMsgs = newMsgs.slice(newMsgs.length - 20);
                                 return newMsgs;
                             });
-                        }
-                        
-                        // Start Audio Playback Now
-                        if (!isStandbyRef.current) {
-                            playBufferedAudio();
-                        } else {
-                            audioChunksBufferRef.current = []; // Discard if standby
                         }
                         
                         transcriptBufferRef.current = "";
@@ -380,14 +428,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                         groundingSourcesRef.current = [];
                     }
                     
+                    // Tool Calling Logic
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             let result: any = { status: 'ok' };
-                            
-                            // Visual Feedback Trigger
                             if (onToolExecuted) onToolExecuted(fc.name, fc.args);
 
-                            // Tool logic identical, but executed silently
                             if (fc.name === 'checkMessages') { /* ... */ }
                             else if (fc.name === 'controlMedia') {
                                 const args = fc.args as any;
@@ -400,7 +446,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                 const args = fc.args as any;
                                 if (isRemoteMode) sendRemoteCommand(args.action, args.query);
                                 else {
-                                    // Quick execution for local
                                     if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
                                 }
                             } 
