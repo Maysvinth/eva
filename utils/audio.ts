@@ -1,4 +1,8 @@
-import { Blob } from "@google/genai";
+
+export interface GeminiAudioBlob {
+  data: string;
+  mimeType: string;
+}
 
 export function base64ToUint8Array(base64: string): Uint8Array {
   const binaryString = atob(base64);
@@ -32,7 +36,7 @@ export function downsampleTo16k(buffer: Float32Array, sampleRate: number): Float
   return result;
 }
 
-export function pcmToGeminiBlob(data: Float32Array, sampleRate: number): Blob {
+export function pcmToGeminiBlob(data: Float32Array, sampleRate: number): GeminiAudioBlob {
   // If data is not 16k, downsample first
   let inputData = data;
   if (sampleRate !== 16000) {
