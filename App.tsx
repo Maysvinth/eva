@@ -45,6 +45,9 @@ const App: React.FC = () => {
   const [isLowLatency, setIsLowLatency] = useState<boolean>(() => localStorage.getItem('eva_low_latency') === 'true');
   const [isEcoMode, setIsEcoMode] = useState<boolean>(true);
 
+  // New State for Voice Selection Confirmation
+  const [pendingVoiceName, setPendingVoiceName] = useState<string | null>(null);
+
   // Notification / Feedback State
   const [feedback, setFeedback] = useState<{ message: string, icon: React.ReactNode, type: 'success' | 'info' } | null>(null);
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -521,39 +524,61 @@ const App: React.FC = () => {
                        </div>
 
                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
-                           {VOICE_LIBRARY.filter(v => voiceFilter === 'All' || v.gender === voiceFilter).map((voice) => (
-                               <button
-                                   key={voice.name}
-                                   onClick={() => handleVoiceSelection(voice.name)}
-                                   className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
-                                       activeCharacter.voiceName === voice.name 
-                                       ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
-                                       : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
-                                   }`}
-                               >
-                                   <div className="flex justify-between items-start mb-2">
-                                       <span className={`font-bold font-display tracking-wide text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300 transition-colors`}>
-                                           {voice.name}
-                                       </span>
-                                       {activeCharacter.voiceName === voice.name && (
-                                           <div className={`w-2 h-2 rounded-full bg-${voice.themeColor}-500 animate-pulse shadow-[0_0_8px_currentColor]`} />
-                                       )}
-                                   </div>
-                                   
-                                   <div className="flex items-center space-x-2 mb-2">
-                                       <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-${voice.themeColor}-900/30 text-${voice.themeColor}-300/70 border border-${voice.themeColor}-500/20`}>
-                                           {voice.gender}
-                                       </span>
-                                   </div>
-                                   
-                                   <p className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors line-clamp-2 leading-relaxed">
-                                       {voice.description}
-                                   </p>
-                                   
-                                   {/* Hover Gradient */}
-                                   <div className={`absolute inset-0 bg-gradient-to-br from-${voice.themeColor}-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
-                               </button>
-                           ))}
+                           {VOICE_LIBRARY.filter(v => voiceFilter === 'All' || v.gender === voiceFilter).map((voice) => {
+                               const isActive = activeCharacter.voiceName === voice.name;
+                               const isPending = pendingVoiceName === voice.name;
+                               
+                               return (
+                                   <button
+                                       key={voice.name}
+                                       onClick={() => {
+                                           if (isActive) return;
+                                           if (isPending) {
+                                               handleVoiceSelection(voice.name);
+                                               setPendingVoiceName(null);
+                                           } else {
+                                               setPendingVoiceName(voice.name);
+                                           }
+                                       }}
+                                       className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
+                                           isActive 
+                                           ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
+                                           : isPending
+                                               ? `bg-gray-800 border-gray-400 ring-1 ring-white/50` 
+                                               : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
+                                       }`}
+                                   >
+                                       <div className="flex justify-between items-start mb-2">
+                                           <span className={`font-bold font-display tracking-wide transition-colors ${
+                                               isActive ? `text-${voice.themeColor}-400` : isPending ? 'text-white' : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
+                                           }`}>
+                                               {voice.name}
+                                           </span>
+                                           {isActive && (
+                                               <div className={`w-2 h-2 rounded-full bg-${voice.themeColor}-500 animate-pulse shadow-[0_0_8px_currentColor]`} />
+                                           )}
+                                           {isPending && !isActive && (
+                                                <span className="text-[9px] bg-white text-black px-1.5 py-0.5 rounded font-bold uppercase animate-pulse">
+                                                    CONFIRM
+                                                </span>
+                                           )}
+                                       </div>
+                                       
+                                       <div className="flex items-center space-x-2 mb-2">
+                                           <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-${voice.themeColor}-900/30 text-${voice.themeColor}-300/70 border border-${voice.themeColor}-500/20`}>
+                                               {voice.gender}
+                                           </span>
+                                       </div>
+                                       
+                                       <p className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors line-clamp-2 leading-relaxed">
+                                           {voice.description}
+                                       </p>
+                                       
+                                       {/* Hover Gradient */}
+                                       <div className={`absolute inset-0 bg-gradient-to-br from-${voice.themeColor}-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
+                                   </button>
+                               );
+                           })}
                        </div>
                    </div>
                )}
