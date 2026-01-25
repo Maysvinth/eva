@@ -12,14 +12,9 @@ export function base64ToUint8Array(base64: string): Uint8Array {
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const len = bytes.byteLength;
-  const chunkSize = 4096; // Chunk to avoid stack overflow on spread
-  for (let i = 0; i < len; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
+  // For small chunks (like 2048 bytes from 1024 samples), spread syntax is fastest
+  // and avoids string concatenation overhead.
+  return btoa(String.fromCharCode(...bytes));
 }
 
 export function downsampleTo16k(buffer: Float32Array, sampleRate: number): Float32Array {
@@ -43,9 +38,13 @@ export function downsampleTo16k(buffer: Float32Array, sampleRate: number): Float
 }
 
 export function pcmToGeminiBlob(data: Float32Array, sampleRate: number): Blob {
+  // Float32 to Int16 PCM
   const l = data.length;
   const int16 = new Int16Array(l);
+  
+  // Unrolling or using simple loop. V8 optimizes this well.
   for (let i = 0; i < l; i++) {
+    // Clamp and scale
     const s = Math.max(-1, Math.min(1, data[i]));
     int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
   }
@@ -62,6 +61,7 @@ export async function decodeAudioData(
   sampleRate: number = 24000,
   numChannels: number = 1
 ): Promise<AudioBuffer> {
+  // Raw PCM data decoding
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
@@ -77,9 +77,10 @@ export async function decodeAudioData(
 
 export function hasSpeech(buffer: Float32Array, threshold: number = 0.01): boolean {
     let sum = 0;
-    for (let i = 0; i < buffer.length; i++) {
+    const len = buffer.length;
+    for (let i = 0; i < len; i++) {
         sum += buffer[i] * buffer[i];
     }
-    const rms = Math.sqrt(sum / buffer.length);
-    return rms > threshold;
+    // RMS
+    return Math.sqrt(sum / len) > threshold;
 }
