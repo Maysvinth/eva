@@ -35,6 +35,10 @@ const App: React.FC = () => {
   const [targetCodeInput, setTargetCodeInput] = useState('');
   const [isMediaPlaying, setIsMediaPlaying] = useState(false);
   
+  // HUD State
+  const [isVoiceDetected, setIsVoiceDetected] = useState(false);
+  const voiceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
   const [wakeWord, setWakeWord] = useState<string>(() => localStorage.getItem('eva_wake_word') || '');
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
@@ -67,14 +71,12 @@ const App: React.FC = () => {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Wake Lock Implementation for "Always On" devices
-  // This is CRITICAL for preventing Android from killing the browser tab
   useEffect(() => {
     const requestWakeLock = async () => {
         if ('wakeLock' in navigator && alwaysOn) {
             try {
                 const lock = await navigator.wakeLock.request('screen');
                 wakeLockRef.current = lock;
-                // Re-acquire lock if visibility changes (user switches tabs briefly)
                 lock.addEventListener('release', () => {
                     if (alwaysOn && document.visibilityState === 'visible') requestWakeLock();
                 });
@@ -90,8 +92,6 @@ const App: React.FC = () => {
         wakeLockRef.current?.release().catch(() => {});
         wakeLockRef.current = null;
     }
-
-    // Cleanup on unmount
     return () => { wakeLockRef.current?.release().catch(() => {}); };
   }, [alwaysOn]);
 
@@ -129,7 +129,20 @@ const App: React.FC = () => {
 
   const { connect, disconnect, connectionState, messages, error, isStandby } = useGeminiLive({
     character: activeCharacter,
-    onVisualizerUpdate: (vol) => { volumeRef.current = vol; },
+    onVisualizerUpdate: (vol) => { 
+        volumeRef.current = vol; 
+        
+        // --- VOICE DETECTION FOR HUD ---
+        if (vol > 0.05) { // Sensitivity threshold
+             if (!isVoiceDetected) {
+                 setIsVoiceDetected(true);
+             }
+             if (voiceTimeoutRef.current) clearTimeout(voiceTimeoutRef.current);
+             voiceTimeoutRef.current = setTimeout(() => {
+                 setIsVoiceDetected(false);
+             }, 300); // 300ms delay to prevent flickering
+        }
+    },
     isRemoteMode: role === 'remote',
     sendRemoteCommand: sendCommand,
     autoReconnect: alwaysOn,
@@ -171,8 +184,6 @@ const App: React.FC = () => {
   const handleVoiceSelection = (voiceName: VoiceName) => {
      const signatureCharacter = CHARACTERS.find(c => c.voiceName === voiceName);
      const voiceData = VOICE_LIBRARY.find(v => v.name === voiceName);
-     if (signatureCharacter && activeCharacter.id !== signatureCharacter.id) {
-     }
      if (voiceData) {
         setActiveCharacter(prev => ({ ...prev, voiceName: voiceName, themeColor: voiceData.themeColor, visualizerColor: voiceData.hexColor }));
      }
@@ -198,8 +209,40 @@ const App: React.FC = () => {
   const isRemote = role === 'remote';
 
   return (
-    <div className="h-[100dvh] bg-[#050505] text-white flex flex-col font-sans selection:bg-cyan-500/30 overflow-hidden relative">
+    <div className={`h-[100dvh] bg-[#050505] text-white flex flex-col font-sans selection:bg-cyan-500/30 overflow-hidden relative transition-colors duration-1000`}>
       
+      {/* DYNAMIC THEME BACKGROUND GLOW */}
+      <div className={`absolute inset-0 bg-gradient-to-br from-${activeCharacter.themeColor}-900/20 via-transparent to-black pointer-events-none transition-all duration-1000`} />
+      
+      {/* STATUS HUD OVERLAY */}
+      <div className="fixed top-0 left-0 w-full z-[100] pointer-events-none flex justify-center items-start p-2">
+          {/* Top Bar Container */}
+          <div className="flex items-center gap-4 bg-black/40 backdrop-blur-md px-6 py-2 rounded-full border border-white/5 shadow-lg mt-1">
+              {/* Running Indicator */}
+              <div className={`flex items-center gap-2 transition-all duration-300 ${connectionState === 'connected' ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                  <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-white/80">RUNNING</span>
+              </div>
+
+              {/* Listening Indicator */}
+              <div className={`flex items-center gap-2 border-l border-white/10 pl-4 transition-all duration-150 ${isVoiceDetected ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                  <Mic className="w-3 h-3 text-cyan-400 animate-pulse" />
+                  <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-cyan-400 shadow-cyan-400/20">LISTENING</span>
+              </div>
+          </div>
+
+          {/* Settings Button - Absolute Right Corner */}
+          <div className="absolute top-3 right-4 pointer-events-auto">
+             <button 
+               onClick={() => setShowSettings(!showSettings)}
+               className="p-2 hover:bg-gray-800/80 rounded-full transition-colors bg-black/40 border border-white/10 backdrop-blur-sm group"
+               aria-label="Settings"
+             >
+               <Settings className={`w-5 h-5 text-gray-400 group-hover:text-white transition-transform duration-500 ${showSettings ? 'rotate-90' : ''}`} />
+             </button>
+          </div>
+      </div>
+
       {/* Feedback Toast Notification */}
       {feedback && (
           <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-[100] animate-fade-in-up">
@@ -213,70 +256,35 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* Header */}
-      <header className="h-16 border-b border-gray-900 flex items-center justify-between px-3 md:px-6 bg-black/50 backdrop-blur-md fixed w-full z-50 top-0">
-        <div className="flex items-center space-x-2">
-          <Activity className={`w-5 h-5 ${connectionState === 'connected' ? 'text-green-500 animate-pulse' : connectionState === 'connecting' ? 'text-yellow-500 animate-spin' : 'text-gray-600'}`} />
-          <h1 className="text-lg md:text-xl font-display tracking-widest font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-100 to-gray-500 truncate max-w-[120px] md:max-w-none">
-            PROJECT <span className={`text-${activeCharacter.themeColor}-500 transition-colors duration-500`}>EVA</span>
-          </h1>
-          {role === 'remote' && p2pStatus === 'connected' && (
-             <span className="hidden sm:flex ml-2 px-2 py-0.5 rounded bg-blue-900/50 border border-blue-500/30 text-[10px] text-blue-300 font-mono items-center">
-                <Wifi className="w-3 h-3 mr-1" /> LINKED
-             </span>
-          )}
-          {role === 'host' && (
-             <span className="hidden sm:flex ml-2 px-2 py-0.5 rounded bg-purple-900/50 border border-purple-500/30 text-[10px] text-purple-300 font-mono items-center">
-                <Monitor className="w-3 h-3 mr-1" /> HOST
-             </span>
-          )}
-        </div>
-        
-        <div className="flex items-center space-x-2 md:space-x-4">
-           <div className="flex bg-gray-900/80 rounded-full p-1 border border-gray-800 backdrop-blur-sm max-w-[120px] sm:max-w-[150px] md:max-w-none overflow-x-auto no-scrollbar">
+      {/* Header - SIMPLIFIED / HIDDEN BY DEFAULT AS PER REQUEST FOR MINIMAL OVERLAY */}
+      {/* We keep the character selector visible but pushed down or minimal */}
+      <div className="absolute top-16 left-0 w-full z-40 flex justify-center pointer-events-none">
+           <div className="pointer-events-auto flex bg-gray-900/40 rounded-full p-1 border border-white/5 backdrop-blur-sm overflow-x-auto no-scrollbar max-w-[90vw]">
              {orderedCharacters.map((char) => (
                <button
                  key={char.id}
                  onClick={() => switchCharacter(char)}
-                 className={`relative px-3 py-1.5 md:px-4 rounded-full text-xs font-bold transition-all duration-300 flex items-center space-x-2 whitespace-nowrap ${
+                 className={`relative px-3 py-1.5 rounded-full text-[10px] font-bold transition-all duration-300 flex items-center space-x-2 whitespace-nowrap ${
                    activeCharacter.id === char.id 
-                     ? `bg-${char.themeColor}-900/40 text-${char.themeColor}-400 ring-1 ring-${char.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.3)]`
+                     ? `bg-${char.themeColor}-900/40 text-${char.themeColor}-400 ring-1 ring-${char.themeColor}-500 shadow-[0_0_10px_rgba(0,0,0,0.3)]`
                      : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
                  }`}
                >
                  <span>{char.name}</span>
-                 {activeCharacter.id === char.id && (
-                     <span className={`w-1.5 h-1.5 rounded-full bg-${char.themeColor}-500 animate-pulse`} />
-                 )}
                </button>
              ))}
            </div>
-           
-           <button 
-             onClick={() => setShowSettings(!showSettings)}
-             className="p-2 hover:bg-gray-800 rounded-full transition-colors relative flex-shrink-0"
-           >
-             <Settings className="w-5 h-5 text-gray-400" />
-             {p2pStatus === 'connected' && <span className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full"></span>}
-           </button>
-        </div>
-      </header>
+      </div>
 
       {/* Main Content */}
       <main className="flex-1 flex pt-16 h-full relative">
-        <div className={`flex flex-col border-r border-gray-900 relative bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] 
+        <div className={`flex flex-col border-r border-gray-900/50 relative 
             ${isRemote ? 'w-full' : 'w-full md:w-1/2 lg:w-2/5'}
         `}>
-           <div className="absolute inset-0 bg-gradient-to-b from-black via-transparent to-black pointer-events-none opacity-80" />
            
            {/* Visualizer Container - Static Mode */}
            <div className="flex-1 flex items-center justify-center relative z-10 overflow-hidden">
               <div className="w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:w-[400px] md:h-[400px] relative transition-all duration-500">
-                 {/* Visualizer Borders */}
-                 <div className={`absolute top-0 left-0 w-6 h-6 sm:w-8 sm:h-8 border-t-2 border-l-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
-                 <div className={`absolute top-0 right-0 w-6 h-6 sm:w-8 sm:h-8 border-t-2 border-r-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
-                 <div className={`absolute bottom-0 left-0 w-6 h-6 sm:w-8 sm:h-8 border-b-2 border-l-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
-                 <div className={`absolute bottom-0 right-0 w-6 h-6 sm:w-8 sm:h-8 border-b-2 border-r-2 border-${activeCharacter.themeColor}-500/30 transition-colors duration-500`} />
                  
                  {/* Voice Tag HUD */}
                  <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 text-[10px] font-mono tracking-widest bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-${activeCharacter.themeColor}-500/30 shadow-[0_0_15px_rgba(0,0,0,0.5)] transition-all duration-500 flex items-center space-x-2 whitespace-nowrap z-20`}>
@@ -317,17 +325,8 @@ const App: React.FC = () => {
                    {activeCharacter.name}
                  </h2>
                  <p className="text-gray-500 text-xs sm:text-sm font-mono mt-1">
-                   STATUS: <span className={
-                     connectionState === 'connected' ? (isStandby ? 'text-amber-500' : 'text-green-500') : 
-                     connectionState === 'connecting' ? 'text-yellow-500' :
-                     connectionState === 'error' ? 'text-red-500' : 'text-gray-500'
-                   }>{connectionState === 'connected' && isStandby ? 'STANDBY' : connectionState.toUpperCase()}</span>
+                   {connectionState === 'connected' ? (isStandby ? 'STANDBY' : 'ONLINE') : connectionState.toUpperCase()}
                  </p>
-                 {wakeWord && (
-                     <p className="text-[10px] text-gray-600 font-mono mt-1 uppercase tracking-widest truncate max-w-[200px]">
-                         Wake: <span className="text-white">{wakeWord}</span>
-                     </p>
-                 )}
               </div>
 
               {/* Main Mic & Always On */}
@@ -353,75 +352,12 @@ const App: React.FC = () => {
                         <span className={`absolute inset-0 rounded-full border border-${activeCharacter.themeColor}-500 animate-ping opacity-20`}></span>
                      )}
                   </button>
-
-                  <div className="flex flex-wrap gap-2 justify-center">
-                      <button 
-                          onClick={toggleAlwaysOn}
-                          className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border text-xs font-mono transition-all duration-300 ${
-                              alwaysOn 
-                              ? `bg-${activeCharacter.themeColor}-900/20 border-${activeCharacter.themeColor}-500 text-${activeCharacter.themeColor}-400 shadow-[0_0_10px_rgba(0,0,0,0.3)]` 
-                              : 'bg-gray-900 border-gray-700 text-gray-500 hover:bg-gray-800'
-                          }`}
-                      >
-                          <Lock className={`w-3 h-3 ${alwaysOn ? 'fill-current' : ''}`} />
-                          <span>ALWAYS ON</span>
-                      </button>
-
-                      {isLowLatency && (
-                          <div className="flex items-center space-x-1 px-3 py-1.5 rounded-full border border-yellow-500/50 bg-yellow-900/20 text-yellow-400 text-xs font-mono">
-                              <Zap className="w-3 h-3 fill-current" />
-                              <span>TURBO</span>
-                          </div>
-                      )}
-                      
-                      {isEcoMode && (
-                          <div className="flex items-center space-x-1 px-3 py-1.5 rounded-full border border-green-500/50 bg-green-900/20 text-green-400 text-xs font-mono">
-                              <Leaf className="w-3 h-3 fill-current" />
-                              <span>ECO</span>
-                          </div>
-                      )}
-                  </div>
-              </div>
-
-              {/* Media Control Widget */}
-              <div className="mt-4 flex items-center justify-center gap-4 animate-fade-in">
-                   <button 
-                     onClick={() => handleMediaControl('seek_backward')}
-                     className={`p-2 rounded-full border border-${activeCharacter.themeColor}-900 text-gray-500 hover:text-${activeCharacter.themeColor}-400 hover:border-${activeCharacter.themeColor}-500/50 transition-all`}
-                   >
-                      <SkipBack className="w-4 h-4" />
-                   </button>
-                   
-                   <button 
-                     onClick={() => handleMediaControl(isMediaPlaying ? 'pause' : 'play')}
-                     className={`
-                        w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 flex items-center justify-center transition-all duration-300 relative group
-                        border-${activeCharacter.themeColor}-500/30 hover:border-${activeCharacter.themeColor}-500
-                     `}
-                   >
-                      {isMediaPlaying ? (
-                          <Pause className={`w-4 h-4 sm:w-5 sm:h-5 text-${activeCharacter.themeColor}-400`} />
-                      ) : (
-                          <Play className={`w-4 h-4 sm:w-5 sm:h-5 text-${activeCharacter.themeColor}-400 ml-1`} />
-                      )}
-                   </button>
-
-                   <button 
-                     onClick={() => handleMediaControl('seek_forward')}
-                     className={`p-2 rounded-full border border-${activeCharacter.themeColor}-900 text-gray-500 hover:text-${activeCharacter.themeColor}-400 hover:border-${activeCharacter.themeColor}-500/50 transition-all`}
-                   >
-                      <SkipForward className="w-4 h-4" />
-                   </button>
-              </div>
-              
-              <div className="text-xs text-gray-600 font-mono mt-2">
-                 INITIALIZE SYSTEM TO START
               </div>
            </div>
         </div>
 
         {/* Right Panel: Chat & Logs */}
-        <div className={`flex-col w-1/2 lg:w-3/5 bg-black relative ${isRemote ? '!hidden' : 'hidden md:flex'}`}>
+        <div className={`flex-col w-1/2 lg:w-3/5 bg-black/50 relative ${isRemote ? '!hidden' : 'hidden md:flex'}`}>
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-900 to-transparent opacity-50" />
           
           <div className="p-4 border-b border-gray-900 flex justify-between items-center bg-gray-900/20">
@@ -431,7 +367,7 @@ const App: React.FC = () => {
              </div>
              <div className="flex space-x-4 text-xs text-gray-500 font-mono">
                 <span className="flex items-center"><Cloud className="w-3 h-3 mr-1" /> GEMINI LIVE</span>
-                <span className="flex items-center"><Zap className="w-3 h-3 mr-1" /> {isLowLatency ? 'ULTRA LOW LATENCY' : 'STANDARD'}</span>
+                <span className="flex items-center"><Zap className="w-3 h-3 mr-1" /> {isLowLatency ? 'TURBO' : 'STANDARD'}</span>
              </div>
           </div>
 
@@ -447,7 +383,7 @@ const App: React.FC = () => {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-4xl w-full h-[600px] flex shadow-2xl relative overflow-hidden flex-col md:flex-row">
             
             {/* Sidebar */}

@@ -172,17 +172,23 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     scheduledEndTimeRef.current = 0;
   }, [stopAllAudio]);
 
-  // Serial Audio Processor
-  // This prevents CPU spikes by decoding chunks one-by-one instead of all at once
+  // Serial Audio Processor with Aggressive Lag Protection
   const processAudioQueue = async () => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
       isProcessingAudioRef.current = true;
 
       try {
-          // If queue is too large (lag), skip to the end to catch up
-          if (audioChunksBufferRef.current.length > 15) {
-              console.warn("Audio buffer overflow, skipping frames to catch up.");
-              audioChunksBufferRef.current = audioChunksBufferRef.current.slice(-5);
+          // LAG PROTECTION:
+          // If the buffer grows beyond a small threshold (indicating network lag or slow decoding),
+          // we aggressively drop frames to snap back to "now".
+          // 4 chunks is approx 200-300ms of audio depending on packet size.
+          const MAX_BUFFER = isEcoMode ? 3 : 5;
+
+          if (audioChunksBufferRef.current.length > MAX_BUFFER) {
+              console.warn("Lag detected. Dropping frames to catch up.");
+              // Keep only the last 2 chunks to ensure continuity but jump ahead
+              audioChunksBufferRef.current = audioChunksBufferRef.current.slice(-2);
+              // Important: Reset timing to "now" to avoid accelerated playback of the remaining chunks
               scheduledEndTimeRef.current = outputContextRef.current.currentTime;
           }
 
@@ -197,26 +203,24 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                   const ctx = outputContextRef.current;
                   const audioBuffer = await decodeAudioData(base64ToUint8Array(chunk), ctx, 24000);
                   
-                  // Shift ONLY after successful decode to prevent data loss
+                  // Only remove from queue after successful decode
                   audioChunksBufferRef.current.shift();
+
+                  // SYNC CORRECTION:
+                  // If the next play time is in the past (underrun), don't queue it for the past.
+                  // Snap to current time.
+                  if (scheduledEndTimeRef.current < ctx.currentTime) {
+                      scheduledEndTimeRef.current = ctx.currentTime;
+                  }
 
                   const source = ctx.createBufferSource();
                   source.buffer = audioBuffer;
                   source.connect(ctx.destination);
                   
-                  // Timing logic
-                  const now = ctx.currentTime;
-                  // If we lagged behind, reset schedule to 'now' (don't play fast catch-up)
-                  if (scheduledEndTimeRef.current < now) {
-                      scheduledEndTimeRef.current = now;
-                  }
-                  
                   source.start(scheduledEndTimeRef.current);
                   scheduledEndTimeRef.current += audioBuffer.duration;
                   
                   activeSourcesRef.current.push(source);
-                  
-                  // GC: Explicitly disconnect on end
                   source.onended = () => {
                       source.disconnect(); 
                       activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
