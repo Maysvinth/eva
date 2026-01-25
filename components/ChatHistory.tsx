@@ -3,27 +3,26 @@ import { Message } from '../types';
 
 interface ChatHistoryProps {
   messages: Message[];
-  streamingUserText?: string;
-  streamingModelText?: string;
+  // Streaming props removed to enforce non-streaming constraint
 }
 
-export const ChatHistory: React.FC<ChatHistoryProps> = ({ messages, streamingUserText, streamingModelText }) => {
+export const ChatHistory: React.FC<ChatHistoryProps> = ({ messages }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll when messages or streaming text updates
+  // Auto-scroll only when a full message is added
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingUserText, streamingModelText]);
+    bottomRef.current?.scrollIntoView({ behavior: 'auto' });
+  }, [messages]);
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4 relative z-10 scroll-smooth">
-      {messages.length === 0 && !streamingUserText && !streamingModelText && (
+      {messages.length === 0 && (
         <div className="h-full flex items-center justify-center text-gray-600 italic">
-          System Initialized. Awaiting Input...
+          System Ready. Audio Mode Active.
         </div>
       )}
       
-      {/* Committed History */}
+      {/* Committed History Only - No partial rendering */}
       {messages.map((msg) => (
         <div 
           key={msg.id} 
@@ -40,7 +39,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ messages, streamingUse
              </span>
           </div>
 
-          {/* Sources Display for News/Facts */}
+          {/* Sources Display */}
           {msg.sources && msg.sources.length > 0 && (
             <div className={`max-w-[80%] mt-2 flex flex-wrap gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.sources.map((source, idx) => (
@@ -58,26 +57,6 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ messages, streamingUse
           )}
         </div>
       ))}
-
-      {/* Real-time Streaming User Input */}
-      {streamingUserText && (
-        <div className="flex justify-end opacity-70">
-          <div className="max-w-[80%] rounded-lg p-3 bg-gray-800/50 border border-gray-700/50 text-gray-300 italic border-dashed">
-            <p className="text-sm">{streamingUserText}</p>
-            <span className="text-[10px] opacity-50 block mt-1 animate-pulse">LISTENING...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Real-time Streaming Model Output */}
-      {streamingModelText && (
-        <div className="flex justify-start opacity-70">
-          <div className="max-w-[80%] rounded-lg p-3 bg-black/30 border border-gray-800/50 text-cyan-400/80 italic border-dashed">
-             <p className="text-sm">{streamingModelText}</p>
-             <span className="text-[10px] opacity-50 block mt-1 animate-pulse">GENERATING...</span>
-          </div>
-        </div>
-      )}
 
       <div ref={bottomRef} />
     </div>

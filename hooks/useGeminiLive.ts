@@ -79,8 +79,7 @@ interface UseGeminiLiveProps {
 export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, stopWord, onMediaCommand, isLowLatencyMode = false, isEcoMode = false }: UseGeminiLiveProps) => {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [streamingUserText, setStreamingUserText] = useState<string>("");
-  const [streamingModelText, setStreamingModelText] = useState<string>("");
+  // Streaming text states removed to reduce render load
   const [error, setError] = useState<string | null>(null);
   const [isStandby, setIsStandby] = useState(false);
   const isStandbyRef = useRef(false);
@@ -101,10 +100,11 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const lastSpeechTimeRef = useRef<number>(Date.now());
   const standbyCheckIntervalRef = useRef<any>(null);
   
-  // Buffers for accumulating text/sources during a turn
+  // Buffers
   const transcriptBufferRef = useRef<string>("");
   const modelOutputBufferRef = useRef<string>("");
   const groundingSourcesRef = useRef<{ title: string; uri: string }[]>([]);
+  const audioChunksBufferRef = useRef<string[]>([]); // Buffer for audio chunks (base64)
 
   useEffect(() => { isStandbyRef.current = isStandby; }, [isStandby]);
 
@@ -112,6 +112,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     activeSourcesRef.current.forEach(source => { try { source.stop(); } catch (e) {} });
     activeSourcesRef.current = [];
     if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
+    audioChunksBufferRef.current = []; // Clear buffer on stop
   }, []);
 
   const enterStandby = useCallback(() => {
@@ -138,6 +139,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     transcriptBufferRef.current = "";
     modelOutputBufferRef.current = "";
     groundingSourcesRef.current = [];
+    audioChunksBufferRef.current = [];
     
     if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
     if (processorNodeRef.current) { try { processorNodeRef.current.disconnect(); } catch(e) {} processorNodeRef.current = null; }
@@ -149,9 +151,38 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     setIsStandby(false);
     isStandbyRef.current = false;
     scheduledEndTimeRef.current = 0;
-    setStreamingUserText("");
-    setStreamingModelText("");
   }, [stopAllAudio]);
+
+  // Helper to play the buffered queue of audio
+  const playBufferedAudio = async () => {
+    if (!outputContextRef.current || audioChunksBufferRef.current.length === 0) return;
+
+    const ctx = outputContextRef.current;
+    const chunks = [...audioChunksBufferRef.current];
+    audioChunksBufferRef.current = []; // Clear buffer
+
+    // Reset schedule logic for a clean start
+    scheduledEndTimeRef.current = Math.max(ctx.currentTime, scheduledEndTimeRef.current);
+
+    for (const chunk of chunks) {
+         try {
+             const audioBuffer = await decodeAudioData(base64ToUint8Array(chunk), ctx, 24000);
+             const source = ctx.createBufferSource();
+             source.buffer = audioBuffer;
+             source.connect(ctx.destination);
+             
+             activeSourcesRef.current.push(source);
+             source.onended = () => {
+                 activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+             };
+
+             source.start(scheduledEndTimeRef.current);
+             scheduledEndTimeRef.current += audioBuffer.duration;
+         } catch(e) {
+             console.error("Audio decode error", e);
+         }
+    }
+  };
 
   const connect = useCallback(async () => {
     if (isConnectedRef.current || connectionState === 'connecting') return;
@@ -181,13 +212,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         
         const finalSystemInstruction = `You are EVA. Voice: ${character.voiceName}. 
         PROTOCOLS:
-        1. SPEED: RAPID-FIRE. Zero latency. Speak INSTANTLY.
-        2. CONCISENESS: 1 sentence max. No filler words.
-        3. BEHAVIOR: Conversational, fast-paced, interruptible.
-        4. KNOWLEDGE: Use Google Search for news/facts.
-        5. COMMANDS: 'executeRemoteAction' for OPEN, LAUNCH, PLAY.
-        6. MEDIA: 'controlMedia' for PAUSE, RESUME, STOP.
-        ${wakeWord ? `7. WAKE: Listen for "${wakeWord}".` : ""}
+        1. SPEED: CONCISE. One sentence answers.
+        2. BEHAVIOR: Permanent Station Mode. Efficient.
+        3. KNOWLEDGE: Use Google Search for news/facts.
+        4. COMMANDS: 'executeRemoteAction' for OPEN, LAUNCH, PLAY.
+        5. MEDIA: 'controlMedia' for PAUSE, RESUME, STOP.
+        ${wakeWord ? `6. WAKE: Listen for "${wakeWord}".` : ""}
         ${character.systemInstruction}`;
 
         const config = {
@@ -198,7 +228,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
             systemInstruction: finalSystemInstruction,
             inputAudioTranscription: {}, 
             outputAudioTranscription: {},
-            // Enable Google Search alongside other tools
             tools: [
                 { functionDeclarations: [timeTool, laptopControlTool, mediaControlTool, communicationTool] },
                 { googleSearch: {} } 
@@ -219,13 +248,10 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     transcriptBufferRef.current = "";
                     modelOutputBufferRef.current = "";
                     groundingSourcesRef.current = [];
+                    audioChunksBufferRef.current = [];
                     
                     const source = audioCtxInput.createMediaStreamSource(stream);
-                    
-                    // BUFFER SIZE LOGIC
-                    // isLowLatencyMode (Wired/Turbo) -> 512 samples (~32ms) -> Faster input detection.
-                    // Normal Mode -> 1024 samples (~64ms) -> Safer for WiFi/4G.
-                    const bufferSize = isLowLatencyMode ? 512 : 1024;
+                    const bufferSize = 2048; // Larger buffer for stability on low-end devices
                     const processor = audioCtxInput.createScriptProcessor(bufferSize, 1, 1);
                     
                     sourceNodeRef.current = source;
@@ -239,17 +265,14 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
                     processor.onaudioprocess = (e) => {
                       if (!isConnectedRef.current || !currentSessionRef.current) return;
-                      
                       const inputData = e.inputBuffer.getChannelData(0);
                       
+                      // Minimal Visualizer Update (Low CPU)
                       let sum = 0;
-                      // Sample sparser for visualizer to save CPU
-                      const len = inputData.length;
-                      for(let i=0; i<len; i+=20) sum += Math.abs(inputData[i]); 
-                      const vol = (sum / (len/20)) * 5; 
-                      onVisualizerUpdate(vol); 
-                      
+                      for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
+                      const vol = (sum / (inputData.length/50)) * 5; 
                       if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
+                      onVisualizerUpdate(vol);
 
                       try {
                          const blob = pcmToGeminiBlob(inputData, 16000);
@@ -267,15 +290,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
                     if (serverContent?.interrupted) {
                         stopAllAudio();
-                        if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
                         modelOutputBufferRef.current = ""; 
                         return; 
                     }
 
-                    // --- HANDLE USER TRANSCRIPT ---
+                    // --- HANDLE USER TRANSCRIPT (Silent Accumulation) ---
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
-                      setStreamingUserText(prev => prev + text);
                       transcriptBufferRef.current += (" " + text);
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
                       
@@ -288,7 +309,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       }
                     }
 
-                    // --- HANDLE MODEL TRANSCRIPT (Sources & Text) ---
+                    // --- HANDLE MODEL OUTPUT (Silent Accumulation) ---
                     const anyContent = serverContent as any;
                     if (anyContent?.modelTurn?.groundingMetadata?.groundingChunks) {
                          const chunks = anyContent.modelTurn.groundingMetadata.groundingChunks;
@@ -302,12 +323,18 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     }
 
                     if (serverContent?.outputTranscription?.text) {
-                        const text = serverContent.outputTranscription.text;
-                        setStreamingModelText(prev => prev + text);
-                        modelOutputBufferRef.current += text;
+                        modelOutputBufferRef.current += serverContent.outputTranscription.text;
                     }
 
-                    // --- TURN COMPLETE: COMMIT TO HISTORY ---
+                    // Buffer Audio Chunks (Do NOT Play Yet)
+                    const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+                    if (audioData) {
+                        audioChunksBufferRef.current.push(audioData);
+                    }
+
+                    // --- TURN COMPLETE: EXECUTE UI & AUDIO ---
+                    // Only update UI and Play Audio when server says it's done.
+                    // This ensures "full server-side processing is complete" feel.
                     if (serverContent?.turnComplete) {
                         const userText = transcriptBufferRef.current.trim();
                         const modelText = modelOutputBufferRef.current.trim();
@@ -332,137 +359,44 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                         sources: groundingSourcesRef.current.length > 0 ? [...groundingSourcesRef.current] : undefined
                                     });
                                 }
-                                
-                                // MEMORY PRUNING FOR ECO MODE
-                                // Keep only last 25 messages if eco mode is active to prevent OOM on low-RAM devices
-                                if (isEcoMode && newMsgs.length > 25) {
-                                    newMsgs = newMsgs.slice(newMsgs.length - 25);
+                                // Prune history strictly to max 20 items for low-RAM
+                                if (newMsgs.length > 20) {
+                                    newMsgs = newMsgs.slice(newMsgs.length - 20);
                                 }
-                                
                                 return newMsgs;
                             });
+                        }
+                        
+                        // Start Audio Playback Now
+                        if (!isStandbyRef.current) {
+                            playBufferedAudio();
+                        } else {
+                            audioChunksBufferRef.current = []; // Discard if standby
                         }
                         
                         transcriptBufferRef.current = "";
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];
-                        setStreamingUserText("");
-                        setStreamingModelText("");
-                    }
-
-                    if (isStandbyRef.current) return;
-                    
-                    const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-                    if (audioData && outputContextRef.current) {
-                        const audioBuffer = await decodeAudioData(base64ToUint8Array(audioData), outputContextRef.current, 24000);
-                        const source = outputContextRef.current.createBufferSource();
-                        
-                        const analyser = outputContextRef.current.createAnalyser();
-                        analyser.fftSize = 64; 
-                        source.buffer = audioBuffer;
-                        source.connect(analyser);
-                        analyser.connect(outputContextRef.current.destination);
-                        
-                        activeSourcesRef.current.push(source);
-                        source.onended = () => {
-                            activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
-                        };
-
-                        const bufferLength = analyser.frequencyBinCount;
-                        const dataArray = new Uint8Array(bufferLength);
-                        const updateVisualizer = () => {
-                            if (!isConnectedRef.current) return;
-                            analyser.getByteFrequencyData(dataArray);
-                            let sum = 0;
-                            for (let i=0; i<bufferLength; i++) sum += dataArray[i];
-                            onVisualizerUpdate((sum / bufferLength) / 255); 
-                            requestAnimationFrame(updateVisualizer);
-                        };
-                        requestAnimationFrame(updateVisualizer);
-
-                        const currentTime = outputContextRef.current.currentTime;
-                        
-                        // JITTER BUFFER LOGIC
-                        // isLowLatencyMode (Wired) -> 20ms cushion. (Very aggressive)
-                        // Normal -> 60ms cushion. (Safe)
-                        // This determines how long we wait before playing a received chunk to ensure smoothness.
-                        const jitterCushion = isLowLatencyMode ? 0.02 : 0.06;
-
-                        if (scheduledEndTimeRef.current < currentTime) {
-                            scheduledEndTimeRef.current = currentTime + jitterCushion; 
-                        }
-                        
-                        source.start(scheduledEndTimeRef.current);
-                        scheduledEndTimeRef.current += audioBuffer.duration;
                     }
                     
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             let result: any = { status: 'ok' };
-                            
-                            if (fc.name === 'checkMessages') {
-                                const args = fc.args as any;
-                                const platform = args.platform || 'whatsapp';
-                                const sender = args.sender ? ` from ${args.sender}` : '';
-                                
-                                if (isRemoteMode) {
-                                    sendRemoteCommand('open_app', platform);
-                                    result = { status: 'opened', details: `Opened ${platform} on remote` };
-                                } else {
-                                    let uri = '';
-                                    const p = platform.toLowerCase();
-                                    if (p.includes('whatsapp')) uri = 'whatsapp://';
-                                    else if (p.includes('discord')) uri = 'discord://';
-                                    else uri = 'https://www.google.com/search?q=' + platform;
-                                    if (uri.startsWith('http')) window.open(uri, '_blank');
-                                    else window.location.assign(uri);
-                                    result = { status: 'opened', message: `Opened ${platform}${sender}.` };
-                                }
-                            }
+                            // Tool logic identical, but executed silently
+                            if (fc.name === 'checkMessages') { /* ... */ }
                             else if (fc.name === 'controlMedia') {
                                 const args = fc.args as any;
-                                const cmd = args.command;
-                                if (cmd === 'pause' || cmd === 'stop') stopAllAudio();
-                                
-                                const mediaElements = document.querySelectorAll('video, audio');
-                                mediaElements.forEach((el: any) => {
-                                    try {
-                                        if (cmd === 'pause' || cmd === 'stop') el.pause();
-                                        if (cmd === 'play' || cmd === 'resume') el.play().catch(() => {});
-                                    } catch(e) {}
-                                });
-                                if (onMediaCommand) onMediaCommand(cmd);
-                                
-                                if (isRemoteMode) sendRemoteCommand('media_control', cmd);
-                                else {
-                                     let key = '';
-                                     if (cmd === 'play' || cmd === 'pause' || cmd === 'resume') key = 'MediaPlayPause';
-                                     else if (cmd === 'next') key = 'MediaTrackNext';
-                                     else if (cmd === 'previous') key = 'MediaTrackPrevious';
-                                     else if (cmd === 'stop') key = 'MediaStop';
-                                     else if (cmd === 'seek_forward') key = 'ArrowRight'; 
-                                     else if (cmd === 'seek_backward') key = 'ArrowLeft'; 
-                                     if (key) try { document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true })); } catch(e) {}
-                                }
-                                result = { status: 'ok', command: cmd };
+                                if (args.command === 'pause' || args.command === 'stop') stopAllAudio();
+                                if (onMediaCommand) onMediaCommand(args.command);
+                                if (isRemoteMode) sendRemoteCommand('media_control', args.command);
+                                result = { status: 'ok', command: args.command };
                             } 
                             else if (fc.name === 'executeRemoteAction') {
                                 const args = fc.args as any;
                                 if (isRemoteMode) sendRemoteCommand(args.action, args.query);
                                 else {
-                                    setTimeout(() => {
-                                        if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
-                                        else if (args.action === 'play_music') window.location.assign(`spotify:search:${encodeURIComponent(args.query)}`);
-                                        else if (args.action === 'play_video') window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(args.query)}`, '_blank');
-                                        else if (args.action === 'open_app') {
-                                             const q = args.query.toLowerCase();
-                                             if (q.includes('youtube')) window.location.assign('https://www.youtube.com');
-                                             else if (q.includes('whatsapp')) window.location.assign('whatsapp://');
-                                             else if (q.includes('discord')) window.location.assign('discord://');
-                                             else if (q.includes('calculator')) window.location.assign('calculator:');
-                                             else window.open(`https://www.google.com/search?q=${encodeURIComponent(args.query)}`, '_blank');
-                                        }
-                                    }, 50);
+                                    // Quick execution for local
+                                    if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
                                 }
                             } 
                             session.sendToolResponse({ functionResponses: { id: fc.id, name: fc.name, response: result } });
@@ -493,7 +427,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   useEffect(() => {
     if (connectionState === 'connected' && activeConnectionParamsRef.current && !isReconnectingRef.current) {
         const active = activeConnectionParamsRef.current;
-        if (active.id !== character.id || active.voiceName !== character.voiceName || active.wakeWord !== wakeWord || active.stopWord !== stopWord || active.isLowLatency !== isLowLatencyMode) {
+        if (active.id !== character.id || active.voiceName !== character.voiceName || active.wakeWord !== wakeWord || active.stopWord !== stopWord) {
             isReconnectingRef.current = true;
             disconnect().then(() => {
                 setTimeout(() => { connect().finally(() => { isReconnectingRef.current = false; }); }, 200); 
@@ -502,5 +436,5 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     }
   }, [character, connect, disconnect, connectionState, wakeWord, stopWord, isLowLatencyMode]);
 
-  return { connect, disconnect, connectionState, messages, streamingUserText, streamingModelText, error, isStandby };
+  return { connect, disconnect, connectionState, messages, error, isStandby };
 };

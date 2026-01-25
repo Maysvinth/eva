@@ -39,7 +39,8 @@ const App: React.FC = () => {
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
   const [isLowLatency, setIsLowLatency] = useState<boolean>(() => localStorage.getItem('eva_low_latency') === 'true');
-  const [isEcoMode, setIsEcoMode] = useState<boolean>(() => localStorage.getItem('eva_eco_mode') === 'true');
+  // Eco Mode is now standard behavior for stability
+  const [isEcoMode, setIsEcoMode] = useState<boolean>(true);
 
   const { role, pairingCode, connectionStatus: p2pStatus, initializeHost, connectToHost, sendCommand, disconnectP2P } = useDevicePairing();
 
@@ -47,7 +48,6 @@ const App: React.FC = () => {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Wake Lock Implementation for "Always On" devices
-  // This prevents the screen from fully sleeping, which keeps the CPU governor from throttling the web app.
   useEffect(() => {
     const requestWakeLock = async () => {
         if ('wakeLock' in navigator && alwaysOn) {
@@ -55,7 +55,6 @@ const App: React.FC = () => {
                 const lock = await navigator.wakeLock.request('screen');
                 wakeLockRef.current = lock;
                 lock.addEventListener('release', () => {
-                    // Re-acquire if released (e.g. tab switch)
                     if (alwaysOn && document.visibilityState === 'visible') requestWakeLock();
                 });
             } catch (err) {
@@ -90,10 +89,9 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('eva_wake_word', wakeWord); }, [wakeWord]);
   useEffect(() => { localStorage.setItem('eva_stop_word', stopWord); }, [stopWord]);
   useEffect(() => { localStorage.setItem('eva_low_latency', String(isLowLatency)); }, [isLowLatency]);
-  useEffect(() => { localStorage.setItem('eva_eco_mode', String(isEcoMode)); }, [isEcoMode]);
   useEffect(() => { localStorage.setItem('eva_character_order', JSON.stringify(characterOrder)); }, [characterOrder]);
 
-  const { connect, disconnect, connectionState, messages, streamingUserText, streamingModelText, error, isStandby } = useGeminiLive({
+  const { connect, disconnect, connectionState, messages, error, isStandby } = useGeminiLive({
     character: activeCharacter,
     onVisualizerUpdate: (vol) => { volumeRef.current = vol; },
     isRemoteMode: role === 'remote',
@@ -137,10 +135,7 @@ const App: React.FC = () => {
      const signatureCharacter = CHARACTERS.find(c => c.voiceName === voiceName);
      const voiceData = VOICE_LIBRARY.find(v => v.name === voiceName);
      if (signatureCharacter && activeCharacter.id !== signatureCharacter.id) {
-        // Option: switch to that character completely? 
-        // For now, let's just apply the voice to the current character to allow customization
      }
-     
      if (voiceData) {
         setActiveCharacter(prev => ({ ...prev, voiceName: voiceName, themeColor: voiceData.themeColor, visualizerColor: voiceData.hexColor }));
      }
@@ -224,7 +219,7 @@ const App: React.FC = () => {
         `}>
            <div className="absolute inset-0 bg-gradient-to-b from-black via-transparent to-black pointer-events-none opacity-80" />
            
-           {/* Visualizer Container */}
+           {/* Visualizer Container - Static Mode */}
            <div className="flex-1 flex items-center justify-center relative z-10 overflow-hidden">
               <div className="w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:w-[400px] md:h-[400px] relative transition-all duration-500">
                  {/* Visualizer Borders */}
@@ -352,16 +347,12 @@ const App: React.FC = () => {
                      className={`
                         w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 flex items-center justify-center transition-all duration-300 relative group
                         border-${activeCharacter.themeColor}-500/30 hover:border-${activeCharacter.themeColor}-500
-                        ${streamingModelText ? 'animate-spin-slow' : ''}
                      `}
                    >
                       {isMediaPlaying ? (
                           <Pause className={`w-4 h-4 sm:w-5 sm:h-5 text-${activeCharacter.themeColor}-400`} />
                       ) : (
                           <Play className={`w-4 h-4 sm:w-5 sm:h-5 text-${activeCharacter.themeColor}-400 ml-1`} />
-                      )}
-                      {streamingModelText && (
-                          <span className={`absolute inset-0 border-t-2 border-${activeCharacter.themeColor}-500 rounded-full animate-spin`}></span>
                       )}
                    </button>
 
@@ -394,11 +385,7 @@ const App: React.FC = () => {
              </div>
           </div>
 
-          <ChatHistory 
-             messages={messages} 
-             streamingUserText={streamingUserText}
-             streamingModelText={streamingModelText}
-          />
+          <ChatHistory messages={messages} />
 
           {error && (
             <div className="p-4 bg-red-900/20 border-t border-red-900/50 text-red-400 text-sm font-mono">
