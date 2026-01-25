@@ -13,7 +13,9 @@ export type VoiceName =
   // Anime Males (10)
   'Kael' | 'Ryu' | 'Atlas' | 'Neo' | 'Dante' | 'Raiden' | 'Haruto' | 'Shinji' | 'Ghost' | 'Blitz' |
   // Anime Females (10)
-  'Luna' | 'Solaris' | 'Nova' | 'Aria' | 'Viper' | 'Miko' | 'Yuki' | 'Hana' | 'Pixie' | 'Siren';
+  'Luna' | 'Solaris' | 'Nova' | 'Aria' | 'Viper' | 'Miko' | 'Yuki' | 'Hana' | 'Pixie' | 'Siren' |
+  // Oshi no Ko
+  'Ai' | 'Aqua' | 'Ruby' | 'Kana' | 'Akane';
 
 export interface CharacterProfile {
   id: string;
