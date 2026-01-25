@@ -435,19 +435,23 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     // Tool Calling Logic
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
-                            let result: any = { status: 'ok' };
-                            if (onToolExecuted) onToolExecuted(fc.name, fc.args);
+                            const fcName = fc.name || "unknown_tool";
+                            const fcId = fc.id || "unknown_id";
+                            const fcArgs = fc.args || {};
 
-                            if (fc.name === 'checkMessages') { /* ... */ }
-                            else if (fc.name === 'controlMedia') {
-                                const args = fc.args as any;
+                            let result: any = { status: 'ok' };
+                            if (onToolExecuted) onToolExecuted(fcName, fcArgs);
+
+                            if (fcName === 'checkMessages') { /* ... */ }
+                            else if (fcName === 'controlMedia') {
+                                const args = fcArgs as any;
                                 if (args.command === 'pause' || args.command === 'stop') stopAllAudio();
                                 if (onMediaCommand) onMediaCommand(args.command);
                                 if (isRemoteMode) sendRemoteCommand('media_control', args.command);
                                 result = { status: 'ok', command: args.command };
                             } 
-                            else if (fc.name === 'executeRemoteAction') {
-                                const args = fc.args as any;
+                            else if (fcName === 'executeRemoteAction') {
+                                const args = fcArgs as any;
                                 if (isRemoteMode) sendRemoteCommand(args.action, args.query);
                                 else {
                                     if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
@@ -455,8 +459,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                             } 
                             session.sendToolResponse({ 
                               functionResponses: [{ 
-                                id: fc.id || "", 
-                                name: fc.name, 
+                                id: fcId, 
+                                name: fcName, 
                                 response: result 
                               }] 
                             });
