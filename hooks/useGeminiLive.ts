@@ -176,22 +176,25 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     scheduledEndTimeRef.current = 0;
   }, [stopAllAudio]);
 
-  // Serial Audio Processor with Aggressive Lag Protection
+  // Serial Audio Processor
   const processAudioQueue = async () => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
       isProcessingAudioRef.current = true;
 
       try {
-          // LAG PROTECTION / SLOW DEVICE OPTIMIZATION:
-          // In Eco Mode: extremely aggressive pruning (keep only 2 chunks)
-          // Standard: Keep max 3 chunks (was 5) to reduce latency
-          const MAX_BUFFER = isEcoMode ? 2 : 3;
+          // BUFFER SAFETY CHECK:
+          // Previously set to 3/2, which was too aggressive for network bursts.
+          // Increased to 8 (Standard) and 4 (Eco) to prevent audio cutting out during processing.
+          const MAX_BUFFER = isEcoMode ? 4 : 8;
 
           if (audioChunksBufferRef.current.length > MAX_BUFFER) {
-              // console.warn(`Lag detected (${audioChunksBufferRef.current.length} chunks). Pruning.`);
-              // Keep only the last 1-2 chunks to ensure continuity but jump ahead
-              audioChunksBufferRef.current = audioChunksBufferRef.current.slice(-2);
-              // Important: Reset timing to "now" to avoid accelerated playback of the remaining chunks
+              // Only prune if we are SIGNIFICANTLY behind.
+              // We prune the OLDEST chunks (shift) to catch up, rather than slicing the end.
+              // This is a "skip forward" strategy rather than a "cut off end" strategy.
+              const dropCount = audioChunksBufferRef.current.length - MAX_BUFFER;
+              audioChunksBufferRef.current.splice(0, dropCount);
+              
+              // Reset timing to "now" to avoid super-fast playback of remaining chunks
               scheduledEndTimeRef.current = outputContextRef.current.currentTime;
           }
 
@@ -392,17 +395,20 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
                       
-                      // VAD / BANDWIDTH OPTIMIZATION (Eco Mode)
-                      if (isEcoMode) {
-                          const speechDetected = hasSpeech(inputData, 0.01);
-                          if (!speechDetected) {
+                      // NOISE GATE & BANDWIDTH OPTIMIZATION
+                      // Only send audio if it's loud enough. This prevents faint echo from
+                      // triggering the "interrupted" state on the server.
+                      const NOISE_THRESHOLD = 0.01; 
+                      
+                      if (vol < NOISE_THRESHOLD) {
+                          // If pure silence, we can skip sending to save bandwidth (Eco Mode)
+                          // or send silence to keep connection alive but without noise
+                          if (isEcoMode) {
                               silencePacketCountRef.current++;
                               if (silencePacketCountRef.current > 2) return; 
-                          } else {
-                              silencePacketCountRef.current = 0;
-                              lastSpeechTimeRef.current = Date.now();
                           }
                       } else {
+                          silencePacketCountRef.current = 0;
                           if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
                       }
                       
@@ -423,6 +429,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const { serverContent } = msg;
 
                     if (serverContent?.interrupted) {
+                        // console.log("Interruption signal received");
                         stopAllAudio();
                         modelOutputBufferRef.current = ""; 
                         return; 
