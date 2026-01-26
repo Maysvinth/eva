@@ -273,70 +273,47 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         const safeVoice = SAFE_VOICE_MAP[character.voiceName] || 'Puck';
         
         const finalSystemInstruction = `
-You are a desktop voice assistant that controls my laptop directly.
-Voice: ${character.voiceName}. 
-Personality Override: ${character.systemInstruction}
+You are a voice-only AI assistant optimized specifically for Huawei P10 Lite.
 
-LANGUAGE PROTOCOL:
-- STRICTLY SPEAK AND LISTEN IN ENGLISH ONLY.
-- Regardless of the user's input language, ALWAYS respond in English.
-- Interpret all input within an English context.
+ABSOLUTE RULES:
+1. NEVER output text responses.
+2. NEVER show captions, transcripts, or written replies.
+3. ALL responses must be spoken audio only.
+4. If voice output fails, retry speaking — do NOT switch to text.
 
-GENERAL BEHAVIOR:
-- Always listen for voice commands.
-- Respond quickly and clearly.
-- Do not add unnecessary animations, confirmations, or explanations.
-- If a command is clear, execute it immediately without hesitation via the provided tools.
+VOICE STABILITY:
+- Never stop speaking mid-sentence.
+- Never cut off your own reply.
+- Always finish the full response before ending audio.
+- If audio is interrupted due to lag or connection issues, automatically continue speaking from where you stopped.
+- If needed, pause briefly and then resume speaking instead of restarting.
 
-DEVICE & CONNECTION RULES:
-- My phone or any other device may already be connected to my laptop.
-- Accept commands from any connected device.
-- Treat all connected devices as authorized controllers.
-- Do not ask for permission again once a device is connected.
+INPUT HANDLING:
+- Wait until the user fully finishes speaking before responding.
+- Ignore partial audio, noise, or accidental triggers.
+- Respond only to clear, complete voice commands.
 
-VOICE-ONLY RESPONSES (NO APPS SHOULD OPEN):
-When I ask questions like:
-- "What is the time?"
-- "What is the weather?"
-- "What’s the news?"
-- "Tell me today’s date"
-- Any general knowledge or small talk question
+PERFORMANCE OPTIMIZATION FOR HUAWEI P10 LITE:
+- Prioritize stability over speed.
+- Use smooth, continuous speech.
+- Avoid fast or rushed speaking.
+- Use short internal buffering to prevent dropouts.
+- Assume mobile data or tethered internet with possible packet loss.
 
-→ Respond only with spoken or text answers.
-→ Do NOT open browsers, apps, or windows.
+FAILSAFE BEHAVIOR:
+- Never freeze silently.
+- If processing takes time, continue speaking once ready.
+- Never end a response early.
+- Do not reset context unless explicitly told.
 
-ACTION COMMANDS (APPS & WEBSITES MUST OPEN):
-When I say commands like:
-- "Open Spotify"
-- "Open YouTube"
-- "Open Google"
-- "Open my browser"
-- "Open settings"
-- "Open any app installed on my laptop"
-- "Open a website" (example: open youtube.com)
+OUTPUT STYLE:
+- Calm, natural, uninterrupted speech.
+- No filler sounds.
+- No sudden stops.
+- No confirmation text.
+- Short and concise answers.
 
-→ Instantly open the requested app or website on my laptop by calling the 'executeRemoteAction' tool.
-→ Use 'open_app' for applications and 'open_url' for specific websites.
-→ Do not ask follow-up questions unless the command is unclear.
-
-APP HANDLING:
-- If the app exists on the laptop (e.g. Spotify, Discord, VSCode), open it using 'open_app'.
-- If the app is not installed, open its official website instead.
-
-WEBSITE HANDLING:
-- If I say a website name, open it directly.
-- If I say a search-style request, open the browser and search it.
-
-PRIORITY RULE:
-- If a command sounds like an ACTION → open or execute it using a Tool.
-- If a command sounds like a QUESTION → reply only with speech.
-
-ERROR HANDLING:
-- If something cannot be opened, briefly say why.
-- Offer one simple alternative, then stop.
-
-You are optimized for speed, clarity, and hands-free laptop control.
-TOOLS: Use 'executeRemoteAction' for opening things, 'controlMedia' for playback, 'googleSearch' for information.
+Your responses are AUDIO ONLY. Do not generate text for the chat interface.
 ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
 `;
 
@@ -429,16 +406,17 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const { serverContent } = msg;
 
                     if (serverContent?.interrupted) {
-                        // console.log("Interruption signal received");
-                        stopAllAudio();
-                        modelOutputBufferRef.current = ""; 
+                        // DISABLE INTERRUPTION: Do not stop audio to prevent cutting off replies.
+                        // stopAllAudio(); 
+                        // modelOutputBufferRef.current = ""; 
+                        console.log("Ignored interruption signal for stability.");
                         return; 
                     }
 
                     // --- HANDLE USER TRANSCRIPT ---
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
-                      // Safe buffer accumulation
+                      // Safe buffer accumulation for wake word detection only
                       transcriptBufferRef.current += (" " + text);
                       
                       // Keep buffer size manageable (max 500 chars)
@@ -474,21 +452,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     }
 
                     // --- HANDLE MODEL OUTPUT ---
-                    const anyContent = serverContent as any;
-                    if (anyContent?.modelTurn?.groundingMetadata?.groundingChunks) {
-                         const chunks = anyContent.modelTurn.groundingMetadata.groundingChunks;
-                         const newSources = chunks
-                             .map((c: any) => c.web ? { title: c.web.title, uri: c.web.uri } : null)
-                             .filter(Boolean);
-                         if (newSources.length > 0) {
-                             const combined = [...groundingSourcesRef.current, ...newSources];
-                             groundingSourcesRef.current = Array.from(new Map(combined.map(item => [item.uri, item])).values());
-                         }
-                    }
-
-                    if (serverContent?.outputTranscription?.text) {
-                        modelOutputBufferRef.current += serverContent.outputTranscription.text;
-                    }
+                    // Note: We ignore outputTranscription for display purposes as per "Voice Only" requirement.
 
                     // Buffer Audio Chunks
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
@@ -504,21 +468,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
 
                     // --- TURN COMPLETE ---
                     if (serverContent?.turnComplete) {
-                        const userText = transcriptBufferRef.current.trim();
-                        const modelText = modelOutputBufferRef.current.trim();
-                        
-                        if (userText || modelText) {
-                            setMessages(prev => {
-                                let newMsgs = [...prev];
-                                if (userText) newMsgs.push({ id: Date.now() + '_user', role: 'user', text: userText, timestamp: new Date() });
-                                if (modelText) newMsgs.push({ id: Date.now() + '_model', role: 'model', text: modelText, timestamp: new Date(), sources: groundingSourcesRef.current.length > 0 ? [...groundingSourcesRef.current] : undefined });
-                                
-                                // MEMORY SAFETY: Prune to last 20 messages
-                                if (newMsgs.length > 20) newMsgs = newMsgs.slice(newMsgs.length - 20);
-                                return newMsgs;
-                            });
-                        }
-                        
+                        // Do NOT add to messages state to strictly enforce NO TEXT history.
                         transcriptBufferRef.current = "";
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable, Leaf, Lock, Globe, Music, Youtube, AppWindow, PlayCircle, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import AvatarVisualizer from './components/AvatarVisualizer';
-import { ChatHistory } from './components/ChatHistory';
 import { useGeminiLive } from './hooks/useGeminiLive';
 import { useDevicePairing } from './hooks/useDevicePairing';
 import { CHARACTERS, VOICE_LIBRARY } from './constants';
@@ -293,14 +292,12 @@ const App: React.FC = () => {
            </div>
       </div>
 
-      {/* Main Content */}
-      <main className="flex-1 flex pt-16 h-full relative">
-        <div className={`flex flex-col border-r border-gray-900/50 relative 
-            ${isRemote ? 'w-full' : 'w-full md:w-1/2 lg:w-2/5'}
-        `}>
+      {/* Main Content - FULL WIDTH - NO CHAT HISTORY */}
+      <main className="flex-1 flex pt-16 h-full relative w-full items-center justify-center">
+        <div className="flex flex-col relative w-full h-full justify-center items-center">
            
            {/* Visualizer Container - Static Mode */}
-           <div className="flex-1 flex items-center justify-center relative z-10 overflow-hidden">
+           <div className="flex-1 flex items-center justify-center relative z-10 overflow-hidden w-full">
               <div className="w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:w-[400px] md:h-[400px] relative transition-all duration-500">
                  
                  {/* Voice Tag HUD */}
@@ -373,29 +370,11 @@ const App: React.FC = () => {
            </div>
         </div>
 
-        {/* Right Panel: Chat & Logs */}
-        <div className={`flex-col w-1/2 lg:w-3/5 bg-black/50 relative ${isRemote ? '!hidden' : 'hidden md:flex'}`}>
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-900 to-transparent opacity-50" />
-          
-          <div className="p-4 border-b border-gray-900 flex justify-between items-center bg-gray-900/20">
-             <div className="flex items-center space-x-2 text-gray-400">
-               <Terminal className="w-4 h-4" />
-               <span className="text-xs font-mono uppercase tracking-wider">Communication Log</span>
-             </div>
-             <div className="flex space-x-4 text-xs text-gray-500 font-mono">
-                <span className="flex items-center"><Cloud className="w-3 h-3 mr-1" /> GEMINI LIVE</span>
-                <span className="flex items-center"><Zap className="w-3 h-3 mr-1" /> {isLowLatency ? 'TURBO' : 'STANDARD'}</span>
-             </div>
-          </div>
-
-          <ChatHistory messages={messages} />
-
-          {error && (
-            <div className="p-4 bg-red-900/20 border-t border-red-900/50 text-red-400 text-sm font-mono">
+        {error && (
+            <div className="absolute bottom-24 bg-red-900/80 text-red-100 px-4 py-2 rounded-full text-xs font-mono border border-red-500/50">
               ERROR: {error}
             </div>
-          )}
-        </div>
+        )}
       </main>
 
       {/* Settings Modal */}
