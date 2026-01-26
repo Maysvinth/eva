@@ -176,27 +176,15 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     scheduledEndTimeRef.current = 0;
   }, [stopAllAudio]);
 
-  // Serial Audio Processor
+  // Serial Audio Processor - OPTIMIZED FOR SMOOTHNESS
   const processAudioQueue = async () => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
       isProcessingAudioRef.current = true;
 
       try {
-          // BUFFER SAFETY CHECK:
-          // Previously set to 3/2, which was too aggressive for network bursts.
-          // Increased to 8 (Standard) and 4 (Eco) to prevent audio cutting out during processing.
-          const MAX_BUFFER = isEcoMode ? 4 : 8;
-
-          if (audioChunksBufferRef.current.length > MAX_BUFFER) {
-              // Only prune if we are SIGNIFICANTLY behind.
-              // We prune the OLDEST chunks (shift) to catch up, rather than slicing the end.
-              // This is a "skip forward" strategy rather than a "cut off end" strategy.
-              const dropCount = audioChunksBufferRef.current.length - MAX_BUFFER;
-              audioChunksBufferRef.current.splice(0, dropCount);
-              
-              // Reset timing to "now" to avoid super-fast playback of remaining chunks
-              scheduledEndTimeRef.current = outputContextRef.current.currentTime;
-          }
+          // REMOVED: Aggressive buffer pruning.
+          // Mobile networks deliver data in bursts. Pruning causes skipping.
+          // We now play everything to ensure complete sentences.
 
           while (audioChunksBufferRef.current.length > 0) {
               if (!isConnectedRef.current || isStandbyRef.current) {
@@ -212,9 +200,15 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                   // Only remove from queue after successful decode
                   audioChunksBufferRef.current.shift();
 
-                  // SYNC CORRECTION:
-                  if (scheduledEndTimeRef.current < ctx.currentTime) {
-                      scheduledEndTimeRef.current = ctx.currentTime;
+                  const currentTime = ctx.currentTime;
+                  
+                  // SMOOTHNESS LOGIC:
+                  // If we have fallen behind (scheduled time is in the past), reset to now.
+                  // CRITICAL: Add a small 50ms "Safety Buffer" when starting fresh.
+                  // This allows the next chunk to arrive/decode while this one plays, 
+                  // preventing the "machine gun" stutter effect on slow CPUs.
+                  if (scheduledEndTimeRef.current < currentTime) {
+                      scheduledEndTimeRef.current = currentTime + 0.05; 
                   }
 
                   const source = ctx.createBufferSource();
@@ -373,16 +367,15 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       const vol = (sum / (inputData.length/50)) * 5; 
                       
                       // NOISE GATE & BANDWIDTH OPTIMIZATION
-                      // Only send audio if it's loud enough. This prevents faint echo from
-                      // triggering the "interrupted" state on the server.
+                      // For "Smoothness", we send continuous streams even if silent,
+                      // unless it's strictly Eco Mode.
+                      // This helps the AI VAD (Voice Activity Detection) not cut out during pauses.
                       const NOISE_THRESHOLD = 0.01; 
                       
                       if (vol < NOISE_THRESHOLD) {
-                          // If pure silence, we can skip sending to save bandwidth (Eco Mode)
-                          // or send silence to keep connection alive but without noise
                           if (isEcoMode) {
                               silencePacketCountRef.current++;
-                              if (silencePacketCountRef.current > 2) return; 
+                              if (silencePacketCountRef.current > 10) return; // Allow some silence padding
                           }
                       } else {
                           silencePacketCountRef.current = 0;
