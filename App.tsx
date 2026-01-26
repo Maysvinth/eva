@@ -43,7 +43,13 @@ const App: React.FC = () => {
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
   const [isLowLatency, setIsLowLatency] = useState<boolean>(() => localStorage.getItem('eva_low_latency') === 'true');
-  const [isEcoMode, setIsEcoMode] = useState<boolean>(true);
+  
+  // AUTO-DETECT ECO MODE: If device has <= 4 cores, default to true if not set
+  const [isEcoMode, setIsEcoMode] = useState<boolean>(() => {
+      const saved = localStorage.getItem('eva_eco_mode');
+      if (saved !== null) return saved === 'true';
+      return navigator.hardwareConcurrency <= 4;
+  });
 
   // New State for Voice Selection Confirmation
   const [pendingVoiceName, setPendingVoiceName] = useState<string | null>(null);
@@ -114,6 +120,7 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem('eva_wake_word', wakeWord); }, [wakeWord]);
   useEffect(() => { localStorage.setItem('eva_stop_word', stopWord); }, [stopWord]);
   useEffect(() => { localStorage.setItem('eva_low_latency', String(isLowLatency)); }, [isLowLatency]);
+  useEffect(() => { localStorage.setItem('eva_eco_mode', String(isEcoMode)); }, [isEcoMode]);
   useEffect(() => { localStorage.setItem('eva_character_order', JSON.stringify(characterOrder)); }, [characterOrder]);
 
   const handleToolExecution = useCallback((toolName: string, args: any) => {
@@ -488,7 +495,14 @@ const App: React.FC = () => {
                            <div className="p-4 bg-green-900/10 rounded border border-green-700/30 flex items-center justify-between">
                                <div>
                                    <div className="font-bold text-sm text-green-500 flex items-center"><Leaf className="w-4 h-4 mr-2"/> Eco / Stability Mode</div>
-                                   <div className="text-xs text-gray-400">Essential for older devices (Galaxy M2, etc).<br/>Reduces animation FPS (20fps) and prunes memory to prevent crashes.</div>
+                                   <div className="text-xs text-gray-400">
+                                       Essential for older devices (Galaxy M2, etc).<br/>
+                                       <ul className="list-disc list-inside mt-1 space-y-0.5">
+                                           <li>Reduces animation FPS (20fps).</li>
+                                           <li>Skips silence packets (saves upload bandwidth).</li>
+                                           <li>Aggressive audio buffer pruning.</li>
+                                       </ul>
+                                   </div>
                                </div>
                                <button 
                                  onClick={toggleEcoMode}

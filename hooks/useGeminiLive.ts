@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
-import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData } from '../utils/audio';
+import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, hasSpeech } from '../utils/audio';
 import { CharacterProfile, ConnectionState, Message } from '../types';
+import { executeLocalAction } from '../utils/launcher';
 
 // Supported Voices Map
 // Maps internal app voice names to Gemini API prebuilt voices
@@ -112,14 +113,14 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const standbyCheckIntervalRef = useRef<any>(null);
   const heartbeatIntervalRef = useRef<any>(null);
   
-  // Buffers
+  // Buffers & Optimization
   const transcriptBufferRef = useRef<string>("");
   const modelOutputBufferRef = useRef<string>("");
   const groundingSourcesRef = useRef<{ title: string; uri: string }[]>([]);
   
-  // Audio Queue Management
   const audioChunksBufferRef = useRef<string[]>([]); 
   const isProcessingAudioRef = useRef<boolean>(false);
+  const silencePacketCountRef = useRef<number>(0); // Track silence for bandwidth optimization
 
   useEffect(() => { isStandbyRef.current = isStandby; }, [isStandby]);
 
@@ -159,6 +160,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     transcriptBufferRef.current = "";
     modelOutputBufferRef.current = "";
     groundingSourcesRef.current = [];
+    silencePacketCountRef.current = 0;
     
     if (streamRef.current) { streamRef.current.getTracks().forEach(track => track.stop()); streamRef.current = null; }
     if (processorNodeRef.current) { try { processorNodeRef.current.disconnect(); } catch(e) {} processorNodeRef.current = null; }
@@ -178,15 +180,17 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
       isProcessingAudioRef.current = true;
 
       try {
-          // LAG PROTECTION:
+          // LAG PROTECTION / SLOW DEVICE OPTIMIZATION:
           // If the buffer grows beyond a small threshold (indicating network lag or slow decoding),
           // we aggressively drop frames to snap back to "now".
-          // 4 chunks is approx 200-300ms of audio depending on packet size.
-          const MAX_BUFFER = isEcoMode ? 3 : 5;
+          // 4 chunks is approx 200-300ms of audio.
+          
+          // In Eco Mode/Slow Network: extremely aggressive pruning (keep only 2 chunks ~100ms)
+          const MAX_BUFFER = isEcoMode ? 2 : 5;
 
           if (audioChunksBufferRef.current.length > MAX_BUFFER) {
-              console.warn("Lag detected. Dropping frames to catch up.");
-              // Keep only the last 2 chunks to ensure continuity but jump ahead
+              console.warn(`Lag detected (${audioChunksBufferRef.current.length} chunks). Pruning.`);
+              // Keep only the last 1-2 chunks to ensure continuity but jump ahead
               audioChunksBufferRef.current = audioChunksBufferRef.current.slice(-2);
               // Important: Reset timing to "now" to avoid accelerated playback of the remaining chunks
               scheduledEndTimeRef.current = outputContextRef.current.currentTime;
@@ -280,7 +284,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         1. SPEED: CONCISE. One sentence answers.
         2. BEHAVIOR: Permanent Station Mode. Efficient.
         3. KNOWLEDGE: Use Google Search for news/facts.
-        4. COMMANDS: 'executeRemoteAction' for OPEN, LAUNCH, PLAY.
+        4. COMMANDS: Use 'executeRemoteAction' to OPEN websites (e.g. 'open youtube.com', 'open reddit') or LAUNCH apps (e.g. 'open Spotify', 'open Discord', 'open Calculator', 'open Settings').
         5. MEDIA: 'controlMedia' for PAUSE, RESUME, STOP.
         ${wakeWord ? `6. WAKE: Listen for "${wakeWord}".` : ""}
         ${character.systemInstruction}`;
@@ -314,6 +318,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                     modelOutputBufferRef.current = "";
                     groundingSourcesRef.current = [];
                     audioChunksBufferRef.current = [];
+                    silencePacketCountRef.current = 0;
                     
                     const source = audioCtxInput.createMediaStreamSource(stream);
                     
@@ -341,7 +346,25 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
                       
-                      if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
+                      // VAD / BANDWIDTH OPTIMIZATION (Eco Mode)
+                      // If in Eco Mode, check for speech. If silence, skip sending to save bandwidth.
+                      if (isEcoMode) {
+                          const speechDetected = hasSpeech(inputData, 0.01);
+                          if (!speechDetected) {
+                              silencePacketCountRef.current++;
+                              // Allow 2 packets of trailing silence to pass through, then block
+                              if (silencePacketCountRef.current > 2) {
+                                  // Skip sending this packet
+                                  return; 
+                              }
+                          } else {
+                              silencePacketCountRef.current = 0;
+                              lastSpeechTimeRef.current = Date.now();
+                          }
+                      } else {
+                          // Standard mode - just track time
+                          if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
+                      }
                       
                       // Don't update visualizer if volume is negligible (saves React renders)
                       if (vol > 0.01) onVisualizerUpdate(vol);
@@ -454,7 +477,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                                 const args = fcArgs as any;
                                 if (isRemoteMode) sendRemoteCommand(args.action, args.query);
                                 else {
-                                    if (args.action === 'open_url') window.open(args.query.startsWith('http') ? args.query : 'https://'+args.query, '_blank');
+                                    // Execute locally if not in remote mode
+                                    executeLocalAction(args.action, args.query);
                                 }
                             } 
                             session.sendToolResponse({ 

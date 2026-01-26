@@ -1,63 +1,11 @@
 import { useState, useRef, useCallback } from 'react';
 import { Peer, DataConnection } from 'peerjs';
 import { DeviceRole, RemoteCommandPacket } from '../types';
+import { executeLocalAction } from '../utils/launcher';
 
 function generateShortId() {
   return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
-
-// Map common app names to URI schemes
-// This allows the web app to launch desktop applications via Deep Linking
-const APP_PROTOCOL_MAP: Record<string, string> = {
-  // --- WEBSITES (Direct Launch) ---
-  'youtube': 'https://www.youtube.com',
-  'google': 'https://www.google.com',
-  'netflix': 'https://www.netflix.com',
-  'hulu': 'https://www.hulu.com',
-  'prime video': 'https://www.amazon.com/primevideo',
-  'twitter': 'https://twitter.com',
-  'x': 'https://twitter.com',
-  'reddit': 'https://www.reddit.com',
-  'instagram': 'https://www.instagram.com',
-  'facebook': 'https://www.facebook.com',
-
-  // --- MESSAGING & SOCIAL ---
-  'discord': 'discord://', 
-  'slack': 'slack://', 
-  'skype': 'skype:', 
-  'teams': 'msteams:',
-  'whatsapp': 'whatsapp://', 
-  'telegram': 'tg://', 
-  'messenger': 'fb-messenger://',
-  'signal': 'signal://',
-  'zoom': 'zoommtg:', 
-  
-  // --- MEDIA ---
-  'spotify': 'spotify:', 
-  'itunes': 'music:',
-  'steam': 'steam://',
-  'vlc': 'vlc://',
-  
-  // --- PRODUCTIVITY & TOOLS ---
-  'vscode': 'vscode://', 
-  'code': 'vscode://', 
-  'notion': 'notion://', 
-  'figma': 'figma://',
-  'trello': 'trello://',
-  'obsidian': 'obsidian://',
-  'evernote': 'evernote://',
-  
-  // --- SYSTEM / UTILITIES ---
-  'calculator': 'calculator:', 
-  'mail': 'mailto:',
-  'calendar': 'webcal:',
-  'maps': 'maps:',
-  'settings': 'ms-settings:', // Windows Settings
-  'store': 'ms-windows-store:', // Windows Store
-  'xbox': 'xbox:',
-  'onenote': 'onenote:',
-  'terminal': 'wt:', // Windows Terminal
-};
 
 interface UseDevicePairingProps {
   onCommandReceived?: (action: string, query: string) => void;
@@ -98,54 +46,8 @@ export const useDevicePairing = ({ onCommandReceived }: UseDevicePairingProps = 
                onCommandReceived(action, query);
            }
            
-           try {
-             if (action === 'open_url') {
-                let url = query.trim();
-                if (!/^[a-z]+:/i.test(url)) url = 'https://' + url;
-                window.open(url, '_blank');
-             } 
-             else if (action === 'play_music') {
-                if (query.toLowerCase().includes('spotify')) {
-                    const cleanSong = query.replace(/play|on|spotify/gi, '').trim();
-                    window.location.assign(`spotify:search:${encodeURIComponent(cleanSong)}`);
-                } else {
-                    window.open(`https://music.youtube.com/search?q=${encodeURIComponent(query)}`, '_blank');
-                }
-             } 
-             else if (action === 'play_video') {
-                window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`, '_blank');
-             } 
-             else if (action === 'open_app') {
-                const cleanQuery = query.toLowerCase().replace(/^(open|launch|run|check|read|go to)\s+/i, '').trim();
-                let target = APP_PROTOCOL_MAP[cleanQuery];
-                
-                // Fuzzy match for partial names
-                if (!target) {
-                    const key = Object.keys(APP_PROTOCOL_MAP).find(k => cleanQuery.includes(k) || k.includes(cleanQuery));
-                    if (key) target = APP_PROTOCOL_MAP[key];
-                }
-
-                if (target) {
-                    // Critical: location.assign is needed for Protocol Handlers to work without user interaction on some browsers
-                    if (target.startsWith('http')) window.open(target, '_blank');
-                    else window.location.assign(target);
-                } else {
-                    // Fallback to Google Search if app not found
-                    window.open(`https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`, '_blank');
-                }
-             } 
-             else if (action === 'media_control') {
-                let key = 'MediaPlayPause';
-                if (query === 'next') key = 'MediaTrackNext';
-                else if (query === 'previous') key = 'MediaTrackPrevious';
-                else if (query === 'stop') key = 'MediaStop';
-                else if (query === 'seek_forward') key = 'ArrowRight'; 
-                else if (query === 'seek_backward') key = 'ArrowLeft'; 
-                document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true }));
-             }
-           } catch(e) {
-               console.error("Remote execution failed", e);
-           }
+           // Execute the command locally on this host device
+           executeLocalAction(action, query);
         }
       });
 

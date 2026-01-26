@@ -81,11 +81,21 @@ export async function decodeAudioData(
   return buffer;
 }
 
+// Optimized strided Root Mean Square calculation for Voice Activity Detection
 export function hasSpeech(buffer: Float32Array, threshold: number = 0.01): boolean {
     let sum = 0;
     const len = buffer.length;
-    for (let i = 0; i < len; i++) {
-        sum += buffer[i] * buffer[i];
+    // Optimization: Check every 10th sample to save CPU cycles
+    // This is sufficient for VAD purposes
+    const stride = 10; 
+    let count = 0;
+    
+    for (let i = 0; i < len; i += stride) {
+        const val = buffer[i];
+        sum += val * val;
+        count++;
     }
-    return Math.sqrt(sum / len) > threshold;
+    
+    const rms = Math.sqrt(sum / count);
+    return rms > threshold;
 }
