@@ -135,12 +135,14 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   }, []);
 
   const enterStandby = useCallback(() => {
+    console.log("Entering Standby Mode");
     setIsStandby(true);
     isStandbyRef.current = true;
     stopAllAudio();
   }, [stopAllAudio]);
 
   const exitStandby = useCallback(() => {
+    console.log("Exiting Standby Mode");
     setIsStandby(false);
     isStandbyRef.current = false;
     lastSpeechTimeRef.current = Date.now();
@@ -181,15 +183,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
       try {
           // LAG PROTECTION / SLOW DEVICE OPTIMIZATION:
-          // If the buffer grows beyond a small threshold (indicating network lag or slow decoding),
-          // we aggressively drop frames to snap back to "now".
-          // 4 chunks is approx 200-300ms of audio.
-          
-          // In Eco Mode/Slow Network: extremely aggressive pruning (keep only 2 chunks ~100ms)
-          const MAX_BUFFER = isEcoMode ? 2 : 5;
+          // In Eco Mode: extremely aggressive pruning (keep only 2 chunks)
+          // Standard: Keep max 3 chunks (was 5) to reduce latency
+          const MAX_BUFFER = isEcoMode ? 2 : 3;
 
           if (audioChunksBufferRef.current.length > MAX_BUFFER) {
-              console.warn(`Lag detected (${audioChunksBufferRef.current.length} chunks). Pruning.`);
+              // console.warn(`Lag detected (${audioChunksBufferRef.current.length} chunks). Pruning.`);
               // Keep only the last 1-2 chunks to ensure continuity but jump ahead
               audioChunksBufferRef.current = audioChunksBufferRef.current.slice(-2);
               // Important: Reset timing to "now" to avoid accelerated playback of the remaining chunks
@@ -211,8 +210,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                   audioChunksBufferRef.current.shift();
 
                   // SYNC CORRECTION:
-                  // If the next play time is in the past (underrun), don't queue it for the past.
-                  // Snap to current time.
                   if (scheduledEndTimeRef.current < ctx.currentTime) {
                       scheduledEndTimeRef.current = ctx.currentTime;
                   }
@@ -259,16 +256,9 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         const audioCtxOutput = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
         
         // --- ANDROID STABILITY: HEARTBEAT ---
-        // Android browsers love to suspend AudioContext to save power. We force it back on.
         heartbeatIntervalRef.current = setInterval(() => {
-            if (audioCtxOutput.state === 'suspended') { 
-                console.log("Resuming Output Context");
-                audioCtxOutput.resume(); 
-            }
-            if (audioCtxInput.state === 'suspended') {
-                console.log("Resuming Input Context");
-                audioCtxInput.resume();
-            }
+            if (audioCtxOutput.state === 'suspended') audioCtxOutput.resume(); 
+            if (audioCtxInput.state === 'suspended') audioCtxInput.resume();
         }, 2000);
 
         if (audioCtxInput.state === 'suspended') await audioCtxInput.resume();
@@ -398,33 +388,24 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       const inputData = e.inputBuffer.getChannelData(0);
                       
                       // VISUALIZER OPTIMIZATION:
-                      // Downsample heavily to save Main Thread CPU
-                      // Only process every 50th sample
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
                       
                       // VAD / BANDWIDTH OPTIMIZATION (Eco Mode)
-                      // If in Eco Mode, check for speech. If silence, skip sending to save bandwidth.
                       if (isEcoMode) {
                           const speechDetected = hasSpeech(inputData, 0.01);
                           if (!speechDetected) {
                               silencePacketCountRef.current++;
-                              // Allow 2 packets of trailing silence to pass through, then block
-                              if (silencePacketCountRef.current > 2) {
-                                  // Skip sending this packet
-                                  return; 
-                              }
+                              if (silencePacketCountRef.current > 2) return; 
                           } else {
                               silencePacketCountRef.current = 0;
                               lastSpeechTimeRef.current = Date.now();
                           }
                       } else {
-                          // Standard mode - just track time
                           if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
                       }
                       
-                      // Don't update visualizer if volume is negligible (saves React renders)
                       if (vol > 0.01) onVisualizerUpdate(vol);
 
                       try {
@@ -450,15 +431,38 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     // --- HANDLE USER TRANSCRIPT ---
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
+                      // Safe buffer accumulation
                       transcriptBufferRef.current += (" " + text);
+                      
+                      // Keep buffer size manageable (max 500 chars)
+                      if (transcriptBufferRef.current.length > 500) {
+                          transcriptBufferRef.current = transcriptBufferRef.current.substring(transcriptBufferRef.current.length - 500);
+                      }
+                      
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
                       
-                      if (wakeWord && bufferLower.includes(wakeWord.toLowerCase()) && isStandbyRef.current) {
-                          exitStandby();
-                          transcriptBufferRef.current = ""; 
+                      // --- WAKE WORD DETECTION (Paused -> Active) ---
+                      if (wakeWord && isStandbyRef.current) {
+                          const cleanWake = wakeWord.toLowerCase().trim();
+                          if (cleanWake && bufferLower.includes(cleanWake)) {
+                              exitStandby();
+                              transcriptBufferRef.current = ""; 
+                          }
                       }
-                      if ((stopWord && bufferLower.includes(stopWord.toLowerCase())) || bufferLower.includes("thank you")) {
-                          if (!isStandbyRef.current) { enterStandby(); transcriptBufferRef.current = ""; }
+
+                      // --- STOP WORD DETECTION (Active -> Paused) ---
+                      if (stopWord && !isStandbyRef.current) {
+                          const cleanStop = stopWord.toLowerCase().trim();
+                          if (cleanStop && bufferLower.includes(cleanStop)) {
+                              enterStandby();
+                              transcriptBufferRef.current = ""; 
+                          }
+                      }
+                      
+                      // Legacy "Thank you" stop command (Backup)
+                      if (!isStandbyRef.current && bufferLower.includes("thank you")) {
+                          enterStandby();
+                          transcriptBufferRef.current = ""; 
                       }
                     }
 
@@ -487,7 +491,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                         if (!isStandbyRef.current) {
                             processAudioQueue();
                         } else {
-                            audioChunksBufferRef.current = [];
+                            audioChunksBufferRef.current = []; // Discard audio if in standby
                         }
                     }
 

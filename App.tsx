@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable, Leaf, Lock, Globe, Music, Youtube, AppWindow, PlayCircle, CheckCircle } from 'lucide-react';
+import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable, Leaf, Lock, Globe, Music, Youtube, AppWindow, PlayCircle, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import AvatarVisualizer from './components/AvatarVisualizer';
 import { ChatHistory } from './components/ChatHistory';
 import { useGeminiLive } from './hooks/useGeminiLive';
@@ -39,6 +39,7 @@ const App: React.FC = () => {
   const [isVoiceDetected, setIsVoiceDetected] = useState(false);
   const voiceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
+  // Config State
   const [wakeWord, setWakeWord] = useState<string>(() => localStorage.getItem('eva_wake_word') || '');
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
@@ -179,41 +180,35 @@ const App: React.FC = () => {
   const toggleLowLatency = () => setIsLowLatency(prev => !prev);
   const toggleEcoMode = () => setIsEcoMode(prev => !prev);
 
-  const switchCharacter = (char: CharacterProfile) => {
+  // --- Voice Cycling Logic ---
+  const cycleCharacter = (direction: 'next' | 'prev') => {
+      const currentIndex = CHARACTERS.findIndex(c => c.id === activeCharacter.id);
+      let newIndex;
+      if (direction === 'next') {
+          newIndex = (currentIndex + 1) % CHARACTERS.length;
+      } else {
+          newIndex = (currentIndex - 1 + CHARACTERS.length) % CHARACTERS.length;
+      }
+      
+      const newChar = CHARACTERS[newIndex];
+      // Preserve overrides if they exist
       const overrides = JSON.parse(localStorage.getItem('eva_voice_overrides') || '{}');
-      const savedVoiceName = overrides[char.id];
-      let newCharState = char;
+      const savedVoiceName = overrides[newChar.id];
+      let charToSet = newChar;
+      
       if (savedVoiceName) {
          const voiceData = VOICE_LIBRARY.find(v => v.name === savedVoiceName);
-         if (voiceData) newCharState = { ...char, voiceName: savedVoiceName, themeColor: voiceData.themeColor, visualizerColor: voiceData.hexColor };
+         if (voiceData) charToSet = { ...newChar, voiceName: savedVoiceName, themeColor: voiceData.themeColor, visualizerColor: voiceData.hexColor };
       }
-      setActiveCharacter(newCharState);
-      setCharacterOrder(prev => [char.id, ...prev.filter(id => id !== char.id)]);
+      
+      setActiveCharacter(charToSet);
   };
 
   const handleVoiceSelection = (voiceName: VoiceName) => {
-     const signatureCharacter = CHARACTERS.find(c => c.voiceName === voiceName);
      const voiceData = VOICE_LIBRARY.find(v => v.name === voiceName);
      if (voiceData) {
         setActiveCharacter(prev => ({ ...prev, voiceName: voiceName, themeColor: voiceData.themeColor, visualizerColor: voiceData.hexColor }));
      }
-  };
-
-  const orderedCharacters = useMemo(() => characterOrder.map(id => CHARACTERS.find(c => c.id === id)).filter((c): c is CharacterProfile => !!c), [characterOrder]);
-
-  const handleMediaControl = (command: string) => {
-      if (role === 'remote') {
-          sendCommand('media_control', command);
-      } else {
-          let key = 'MediaPlayPause';
-          if (command === 'next') key = 'MediaTrackNext';
-          if (command === 'previous') key = 'MediaTrackPrevious';
-          if (command === 'seek_forward') key = 'ArrowRight';
-          if (command === 'seek_backward') key = 'ArrowLeft';
-          try { document.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true })); } catch(e) {}
-      }
-      if (command === 'play') setIsMediaPlaying(true);
-      if (command === 'pause') setIsMediaPlaying(false);
   };
 
   const isRemote = role === 'remote';
@@ -266,23 +261,35 @@ const App: React.FC = () => {
           </div>
       )}
 
-      {/* Header - SIMPLIFIED / HIDDEN BY DEFAULT AS PER REQUEST FOR MINIMAL OVERLAY */}
-      {/* We keep the character selector visible but pushed down or minimal */}
+      {/* Header - Single Voice Selector with Arrows */}
       <div className="absolute top-16 left-0 w-full z-40 flex justify-center pointer-events-none">
-           <div className="pointer-events-auto flex bg-gray-900/40 rounded-full p-1 border border-white/5 backdrop-blur-sm overflow-x-auto no-scrollbar max-w-[90vw]">
-             {orderedCharacters.map((char) => (
-               <button
-                 key={char.id}
-                 onClick={() => switchCharacter(char)}
-                 className={`relative px-3 py-1.5 rounded-full text-[10px] font-bold transition-all duration-300 flex items-center space-x-2 whitespace-nowrap ${
-                   activeCharacter.id === char.id 
-                     ? `bg-${char.themeColor}-900/40 text-${char.themeColor}-400 ring-1 ring-${char.themeColor}-500 shadow-[0_0_10px_rgba(0,0,0,0.3)]`
-                     : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-                 }`}
-               >
-                 <span>{char.name}</span>
-               </button>
-             ))}
+           <div className="pointer-events-auto flex items-center justify-between bg-gray-900/60 rounded-full p-1 border border-white/10 backdrop-blur-md shadow-xl w-[280px] sm:w-[320px]">
+             
+             <button 
+               onClick={() => cycleCharacter('prev')}
+               className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+               aria-label="Previous Voice"
+             >
+               <ChevronLeft className="w-5 h-5" />
+             </button>
+
+             <div className="flex flex-col items-center justify-center flex-1 px-2 overflow-hidden">
+                <span className={`text-xs font-bold tracking-widest text-${activeCharacter.themeColor}-400 uppercase truncate max-w-full animate-fade-in`}>
+                    {activeCharacter.name}
+                </span>
+                <span className="text-[9px] text-gray-500 font-mono truncate max-w-full">
+                    {activeCharacter.voiceName} • {VOICE_LIBRARY.find(v => v.name === activeCharacter.voiceName)?.gender || 'AI'}
+                </span>
+             </div>
+
+             <button 
+               onClick={() => cycleCharacter('next')}
+               className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+               aria-label="Next Voice"
+             >
+               <ChevronRight className="w-5 h-5" />
+             </button>
+             
            </div>
       </div>
 
@@ -446,23 +453,29 @@ const App: React.FC = () => {
                                    <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Wake Word</label>
                                    <input 
                                      type="text" 
-                                     value={wakeWord}
-                                     onChange={(e) => setWakeWord(e.target.value)}
+                                     defaultValue={wakeWord}
+                                     onBlur={(e) => setWakeWord(e.target.value)}
                                      placeholder="e.g. Hey Eva"
-                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none"
+                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none placeholder-gray-600"
                                    />
-                                   <p className="text-[10px] text-gray-600 mt-1">Leave empty to disable. Say this to wake from standby.</p>
+                                   <p className="text-[10px] text-gray-600 mt-1">
+                                      <span className="text-cyan-500 font-bold">UNPAUSE:</span> Say this to exit standby.
+                                      <br/>Changes saved on exit.
+                                   </p>
                                </div>
                                <div>
                                    <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Stop Word</label>
                                    <input 
                                      type="text" 
-                                     value={stopWord}
-                                     onChange={(e) => setStopWord(e.target.value)}
+                                     defaultValue={stopWord}
+                                     onBlur={(e) => setStopWord(e.target.value)}
                                      placeholder="e.g. Stop"
-                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-red-500 focus:outline-none"
+                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-red-500 focus:outline-none placeholder-gray-600"
                                    />
-                                   <p className="text-[10px] text-gray-600 mt-1">Emergency phrase to immediately silence the AI.</p>
+                                   <p className="text-[10px] text-gray-600 mt-1">
+                                      <span className="text-red-500 font-bold">PAUSE:</span> Say this to mute/standby.
+                                      <br/>Changes saved on exit.
+                                   </p>
                                </div>
                            </div>
 
