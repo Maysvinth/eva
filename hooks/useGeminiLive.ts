@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
-import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, hasSpeech } from '../utils/audio';
+import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, hasSpeech, concatUint8Arrays } from '../utils/audio';
 import { CharacterProfile, ConnectionState, Message } from '../types';
 import { executeLocalAction } from '../utils/launcher';
 
@@ -214,60 +214,73 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     scheduledEndTimeRef.current = 0;
   }, [stopAllAudio]);
 
-  // Serial Audio Processor - STABILIZED
-  const processAudioQueue = async () => {
+  // Serial Audio Processor - STABILIZED & BATCHED
+  // Processes multiple chunks at once to reduce overhead and gaps.
+  const processAudioQueue = useCallback(() => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
       isProcessingAudioRef.current = true;
 
       try {
-          while (audioChunksBufferRef.current.length > 0) {
-              if (!isConnectedRef.current || isStandbyRef.current) {
-                  audioChunksBufferRef.current = [];
-                  break;
-              }
-
-              const chunk = audioChunksBufferRef.current[0];
-              try {
-                  const ctx = outputContextRef.current;
-                  const audioBuffer = await decodeAudioData(base64ToUint8Array(chunk), ctx, 24000);
-                  
-                  audioChunksBufferRef.current.shift();
-
-                  const currentTime = ctx.currentTime;
-                  
-                  // STABILITY VS LATENCY:
-                  // Eco Mode (Low-End): 0.06s (60ms) - Prevents audio glitching due to CPU jitter.
-                  // Turbo Mode: 0.01s (10ms) - Near instant.
-                  const BUFFER_SAFETY_MARGIN = isEcoMode ? 0.06 : 0.01; 
-
-                  // Drift Correction:
-                  // If we are too far behind (e.g., calculation lag), jump ahead to prevent fast-forward effect.
-                  if (scheduledEndTimeRef.current < currentTime) {
-                      scheduledEndTimeRef.current = currentTime + BUFFER_SAFETY_MARGIN; 
-                  }
-
-                  const source = ctx.createBufferSource();
-                  source.buffer = audioBuffer;
-                  source.connect(ctx.destination);
-                  
-                  source.start(scheduledEndTimeRef.current);
-                  scheduledEndTimeRef.current += audioBuffer.duration;
-                  
-                  activeSourcesRef.current.push(source);
-                  source.onended = () => {
-                      source.disconnect(); 
-                      activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
-                  };
-
-              } catch (e) {
-                  console.error("Audio decode error", e);
-                  audioChunksBufferRef.current.shift(); 
-              }
+          if (audioChunksBufferRef.current.length === 0) {
+              isProcessingAudioRef.current = false;
+              return;
           }
+
+          // Consume ALL pending chunks in one go.
+          // This "batching" creates larger continuous buffers, preventing gaps (glitches) caused by frequent scheduling.
+          const chunksToProcess = [...audioChunksBufferRef.current];
+          audioChunksBufferRef.current = [];
+
+          if (!isConnectedRef.current || isStandbyRef.current) {
+              isProcessingAudioRef.current = false;
+              return;
+          }
+
+          const ctx = outputContextRef.current;
+          
+          // Decode & Merge
+          const byteArrays = chunksToProcess.map(base64ToUint8Array);
+          const combinedUint8 = concatUint8Arrays(byteArrays);
+          
+          // Synchronous decode (no await)
+          const audioBuffer = decodeAudioData(combinedUint8, ctx, 24000);
+          
+          const currentTime = ctx.currentTime;
+          
+          // STABILITY VS LATENCY:
+          // Eco Mode: 0.1s - Larger safety margin for low-end CPUs (P10 Lite).
+          // Turbo: 0.01s - Tight loop.
+          const BUFFER_SAFETY_MARGIN = isEcoMode ? 0.1 : 0.01; 
+
+          // Drift Correction
+          if (scheduledEndTimeRef.current < currentTime) {
+              scheduledEndTimeRef.current = currentTime + BUFFER_SAFETY_MARGIN; 
+          }
+
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          
+          source.start(scheduledEndTimeRef.current);
+          scheduledEndTimeRef.current += audioBuffer.duration;
+          
+          activeSourcesRef.current.push(source);
+          source.onended = () => {
+              source.disconnect(); 
+              activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+          };
+
+      } catch (e) {
+          console.error("Audio processing error", e);
       } finally {
           isProcessingAudioRef.current = false;
+          // Only loop immediately if we are in low latency mode.
+          // In Eco mode, we might wait for the next turnComplete or large batch.
+          if (!isEcoMode && audioChunksBufferRef.current.length > 0) {
+              setTimeout(processAudioQueue, 0);
+          }
       }
-  };
+  }, [isEcoMode]);
 
   const connect = useCallback(async () => {
     if (isConnectedRef.current || connectionState === 'connecting') return;
@@ -305,35 +318,32 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
         const safeVoice = SAFE_VOICE_MAP[character.voiceName] || 'Puck';
         
-        // --- UPDATED INSTRUCTION FOR SPEED & STABILITY ---
+        // --- UPDATED INSTRUCTION FOR HUAWEI P10 LITE OPTIMIZATION ---
         const finalSystemInstruction = `
-You are a voice-only AI assistant.
+You are EVA AI, optimized STRICTLY for low-end Android devices (Huawei P10 Lite).
 
-SPEED & STYLE RULES:
-- SPEAK FAST. Maintain a brisk, energetic pace.
-- NO PAUSES. Begin speaking immediately.
-- KEEP ANSWERS SHORT. Aim for 1-2 sentences.
-- SKIP PLEASANTRIES. Do not say "Sure", "Okay", or "I can do that". Just execute.
-- Prioritize information density.
+DEVICE PROFILE:
+- Device: Huawei P10 Lite (Low RAM/CPU)
+- Priority: STABILITY over speed.
 
-ABSOLUTE RULES:
-1. NEVER output text responses.
-2. NEVER show captions.
-3. ALL responses must be spoken audio only.
+CRITICAL RULES (MUST FOLLOW):
+1. KEEP RESPONSES SHORT. Aim for 1 sentence, max 2.
+2. DO NOT use markdown, emojis, formatting, or lists. Plain text only.
+3. DO NOT repeat words, phrases, or restart sentences.
+4. DO NOT say "processing", "loading", or "I'm thinking".
+5. Generate the FULL response text internally before speaking (minimize pauses).
+6. SKIP pleasantries. Be direct.
 
-VOICE STABILITY:
-- Never stop speaking mid-sentence.
-- If audio is interrupted, automatically continue speaking from where you stopped.
-
-INPUT HANDLING:
-- Wait until the user fully finishes speaking.
-- Ignore partial audio, noise, or accidental triggers.
+OUTPUT STYLE:
+- Clear.
+- Concise.
+- One-pass response only.
 
 ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
 `;
 
         const config = {
-          model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+          model: 'gemgemini-2.5-flash-native-audio-preview-12-2025',
           config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: safeVoice } } },
@@ -366,7 +376,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const source = audioCtxInput.createMediaStreamSource(stream);
                     
                     // LATENCY OPTIMIZATION:
-                    // Use smaller buffer for faster processing.
                     const bufferSize = isLowLatencyMode ? 1024 : 2048;
                     const processor = audioCtxInput.createScriptProcessor(bufferSize, 1, 1);
                     
@@ -388,8 +397,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       const vol = (sum / (inputData.length/50)) * 5; 
                       
                       // DYNAMIC NOISE GATE & ECHO SUPPRESSION
-                      // If the AI is speaking (activeSourcesRef > 0), raise the threshold significantly.
-                      // This prevents the AI from "hearing itself" via speaker echo and interrupting mid-sentence.
                       const isAiSpeaking = activeSourcesRef.current.length > 0;
                       const NOISE_THRESHOLD = isAiSpeaking ? 0.2 : 0.01; 
                       
@@ -400,7 +407,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                           }
                       } else {
                           silencePacketCountRef.current = 0;
-                          // Only update last speech time if input is significant (not just background hum)
                           if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
                       }
                       
@@ -460,14 +466,20 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (audioData) {
                         audioChunksBufferRef.current.push(audioData);
-                        if (!isStandbyRef.current) {
+                        // ECO MODE LOGIC:
+                        // If isEcoMode is ON, we DO NOT stream chunks immediately. 
+                        // We wait for turnComplete to ensure the device plays a single, uninterrupted stream.
+                        if (!isStandbyRef.current && !isEcoMode) {
                             processAudioQueue();
-                        } else {
-                            audioChunksBufferRef.current = []; 
                         }
                     }
 
                     if (serverContent?.turnComplete) {
+                        // For Eco Mode: Play everything collected now.
+                        if (!isStandbyRef.current && isEcoMode) {
+                            processAudioQueue();
+                        }
+                        
                         transcriptBufferRef.current = "";
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];
@@ -526,7 +538,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
         });
         currentSessionRef.current = session;
     } catch (e: any) { setError(e.message); setConnectionState('error'); }
-  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isLowLatencyMode, isEcoMode, onToolExecuted]);
+  }, [character, onVisualizerUpdate, stopAllAudio, isRemoteMode, sendRemoteCommand, autoReconnect, wakeWord, onMediaCommand, stopWord, connectionState, enterStandby, exitStandby, isLowLatencyMode, isEcoMode, onToolExecuted, processAudioQueue]);
 
   useEffect(() => {
     if (connectionState === 'connected' && activeConnectionParamsRef.current && !isReconnectingRef.current) {
