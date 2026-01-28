@@ -5,22 +5,60 @@ import { CharacterProfile, ConnectionState, Message } from '../types';
 import { executeLocalAction } from '../utils/launcher';
 
 // Supported Voices Map
-// Maps internal app voice names to Gemini API prebuilt voices
+// Ensures strict gender separation and tonal variety using distinct Gemini voices.
+// MALE VOICES:
+// - Puck: Playful, higher pitch, youthful (Tenor)
+// - Charon: Deep, authoritative, calm (Bass)
+// - Fenrir: Intense, raspy, energetic (Baritone)
+//
+// FEMALE VOICES:
+// - Kore: Warm, motherly, soft (Alto)
+// - Aoede: Dramatic, high pitch, expressive (Soprano)
+// - Zephyr: Bright, fast, crisp (Mezzo-Soprano)
+
 const SAFE_VOICE_MAP: Record<string, string> = {
-  // Originals
-  'Puck': 'Puck', 'Charon': 'Charon', 'Fenrir': 'Fenrir', 'Lynx': 'Fenrir', 'Orion': 'Charon',
-  'Kore': 'Kore', 'Zephyr': 'Zephyr', 'Aoede': 'Zephyr', 'Leda': 'Kore', 'Vega': 'Zephyr',
-  // Anime Generic
-  'Kael': 'Fenrir', 'Ryu': 'Puck', 'Atlas': 'Charon', 'Neo': 'Puck', 'Dante': 'Fenrir',
-  'Raiden': 'Fenrir', 'Haruto': 'Puck', 'Shinji': 'Puck', 'Ghost': 'Charon', 'Blitz': 'Fenrir',
-  'Luna': 'Zephyr', 'Solaris': 'Kore', 'Nova': 'Zephyr', 'Aria': 'Zephyr', 'Viper': 'Kore',
-  'Miko': 'Kore', 'Yuki': 'Zephyr', 'Hana': 'Puck', 'Pixie': 'Puck', 'Siren': 'Kore',
-  // Oshi no Ko Specific Mappings
-  'Ai': 'Aoede',     // High pitched, energetic, confident
-  'Aqua': 'Charon',  // Deep, calm, serious
-  'Ruby': 'Puck',    // Playful, energetic, slightly chaotic
-  'Kana': 'Fenrir',  // Expressive, intense (Tsundere vibes)
-  'Akane': 'Leda'    // Soft spoken, intellectual, method actor
+  // --- MALES ---
+  'Puck': 'Puck', 
+  'Kael': 'Puck',      // Protagonist -> Puck
+  'Neo': 'Puck',       // Hacker -> Puck
+  'Haruto': 'Puck',    // Prince -> Puck
+  'Shinji': 'Puck',    // Nervous -> Puck
+  
+  'Charon': 'Charon', 
+  'Aqua': 'Charon',    // Deep/Dark -> Charon
+  'Atlas': 'Charon',   // Heavy -> Charon
+  'Ghost': 'Charon',   // Silent -> Charon
+  'Orion': 'Charon',   // Deep Space -> Charon
+
+  'Fenrir': 'Fenrir', 
+  'Ryu': 'Fenrir',     // Battle -> Fenrir
+  'Dante': 'Fenrir',   // Hunter -> Fenrir
+  'Raiden': 'Fenrir',  // Ninja -> Fenrir
+  'Blitz': 'Fenrir',   // Rival -> Fenrir
+  'Lynx': 'Fenrir',    // Tactical -> Fenrir
+
+  // --- FEMALES ---
+  'Kore': 'Kore', 
+  'Akane': 'Kore',     // Soft/Method -> Kore
+  'Nova': 'Kore',      // Android -> Kore
+  'Aria': 'Kore',      // Healer -> Kore
+  'Miko': 'Kore',      // Shrine -> Kore
+  'Leda': 'Kore',      // Guardian -> Kore
+
+  'Aoede': 'Aoede', 
+  'Ai': 'Aoede',       // Idol -> Aoede
+  'Kana': 'Aoede',     // Sassy -> Aoede
+  'Solaris': 'Aoede',  // Tsundere -> Aoede
+  'Viper': 'Aoede',    // Villainess -> Aoede
+  'Hana': 'Aoede',     // Genki -> Aoede
+  'Pixie': 'Aoede',    // High Pitch -> Aoede
+
+  'Zephyr': 'Zephyr', 
+  'Ruby': 'Zephyr',    // Energetic -> Zephyr
+  'Luna': 'Zephyr',    // Ethereal -> Zephyr
+  'Yuki': 'Zephyr',    // Cool -> Zephyr
+  'Siren': 'Zephyr',   // Melodic -> Zephyr
+  'Vega': 'Zephyr'     // Navigator -> Zephyr
 };
 
 const timeTool: FunctionDeclaration = {
@@ -106,7 +144,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const isReconnectingRef = useRef<boolean>(false);
   const isConnectedRef = useRef<boolean>(false);
   
-  // Use a Set for active sources for easier management, but we need to be careful with memory
+  // Use a Set for active sources for easier management
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const autoReconnectTimerRef = useRef<any>(null);
   const lastSpeechTimeRef = useRef<number>(Date.now());
@@ -120,7 +158,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   
   const audioChunksBufferRef = useRef<string[]>([]); 
   const isProcessingAudioRef = useRef<boolean>(false);
-  const silencePacketCountRef = useRef<number>(0); // Track silence for bandwidth optimization
+  const silencePacketCountRef = useRef<number>(0); 
 
   useEffect(() => { isStandbyRef.current = isStandby; }, [isStandby]);
 
@@ -130,8 +168,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     });
     activeSourcesRef.current = [];
     if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
-    audioChunksBufferRef.current = []; // Clear buffer
-    isProcessingAudioRef.current = false; // Reset processing lock
+    audioChunksBufferRef.current = []; 
+    isProcessingAudioRef.current = false; 
   }, []);
 
   const enterStandby = useCallback(() => {
@@ -176,16 +214,12 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     scheduledEndTimeRef.current = 0;
   }, [stopAllAudio]);
 
-  // Serial Audio Processor - OPTIMIZED FOR SMOOTHNESS
+  // Serial Audio Processor - INSTANT RESPONSE
   const processAudioQueue = async () => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
       isProcessingAudioRef.current = true;
 
       try {
-          // REMOVED: Aggressive buffer pruning.
-          // Mobile networks deliver data in bursts. Pruning causes skipping.
-          // We now play everything to ensure complete sentences.
-
           while (audioChunksBufferRef.current.length > 0) {
               if (!isConnectedRef.current || isStandbyRef.current) {
                   audioChunksBufferRef.current = [];
@@ -197,18 +231,17 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
                   const ctx = outputContextRef.current;
                   const audioBuffer = await decodeAudioData(base64ToUint8Array(chunk), ctx, 24000);
                   
-                  // Only remove from queue after successful decode
                   audioChunksBufferRef.current.shift();
 
                   const currentTime = ctx.currentTime;
                   
-                  // SMOOTHNESS LOGIC:
-                  // If we have fallen behind (scheduled time is in the past), reset to now.
-                  // CRITICAL: Add a small 50ms "Safety Buffer" when starting fresh.
-                  // This allows the next chunk to arrive/decode while this one plays, 
-                  // preventing the "machine gun" stutter effect on slow CPUs.
+                  // INSTANT PLAYBACK
+                  // 5ms safety margin. This is as close to "real-time" as web audio gets without clicking.
+                  const BUFFER_SAFETY_MARGIN = 0.005; 
+
+                  // If the schedule is behind the current time, jump to NOW immediately.
                   if (scheduledEndTimeRef.current < currentTime) {
-                      scheduledEndTimeRef.current = currentTime + 0.05; 
+                      scheduledEndTimeRef.current = currentTime + BUFFER_SAFETY_MARGIN; 
                   }
 
                   const source = ctx.createBufferSource();
@@ -226,7 +259,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
               } catch (e) {
                   console.error("Audio decode error", e);
-                  audioChunksBufferRef.current.shift(); // Remove corrupted chunk
+                  audioChunksBufferRef.current.shift(); 
               }
           }
       } finally {
@@ -250,9 +283,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
         streamRef.current = stream;
 
         const audioCtxInput = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-        const audioCtxOutput = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
         
-        // --- ANDROID STABILITY: HEARTBEAT ---
+        // Use 'interactive' latency hint for lowest possible hardware latency
+        const audioCtxOutput = new (window.AudioContext || (window as any).webkitAudioContext)({ 
+            sampleRate: 24000,
+            latencyHint: 'interactive'
+        });
+        
         heartbeatIntervalRef.current = setInterval(() => {
             if (audioCtxOutput.state === 'suspended') audioCtxOutput.resume(); 
             if (audioCtxInput.state === 'suspended') audioCtxInput.resume();
@@ -279,35 +316,25 @@ VOICE STABILITY:
 - Never stop speaking mid-sentence.
 - Never cut off your own reply.
 - Always finish the full response before ending audio.
-- If audio is interrupted due to lag or connection issues, automatically continue speaking from where you stopped.
-- If needed, pause briefly and then resume speaking instead of restarting.
+- If audio is interrupted, automatically continue speaking from where you stopped.
 
 INPUT HANDLING:
-- Wait until the user fully finishes speaking before responding.
+- Wait until the user fully finishes speaking.
 - Ignore partial audio, noise, or accidental triggers.
 - Respond only to clear, complete voice commands.
 
-PERFORMANCE OPTIMIZATION FOR HUAWEI P10 LITE:
-- Prioritize stability over speed.
-- Use smooth, continuous speech.
-- Avoid fast or rushed speaking.
-- Use short internal buffering to prevent dropouts.
-- Assume mobile data or tethered internet with possible packet loss.
-
-FAILSAFE BEHAVIOR:
-- Never freeze silently.
-- If processing takes time, continue speaking once ready.
-- Never end a response early.
-- Do not reset context unless explicitly told.
+PERFORMANCE OPTIMIZATION:
+- Prioritize instant responses.
+- Use concise, direct speech.
+- Avoid long pauses.
 
 OUTPUT STYLE:
 - Calm, natural, uninterrupted speech.
 - No filler sounds.
 - No sudden stops.
 - No confirmation text.
-- Short and concise answers.
 
-Your responses are AUDIO ONLY. Do not generate text for the chat interface.
+Your responses are AUDIO ONLY.
 ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
 `;
 
@@ -344,8 +371,10 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     
                     const source = audioCtxInput.createMediaStreamSource(stream);
                     
-                    // PERFORMANCE: 4096 buffer for Eco Mode (Low CPU), 2048 for Low Latency
-                    const bufferSize = isEcoMode ? 4096 : 2048;
+                    // LATENCY OPTIMIZATION:
+                    // Use smaller buffer for faster processing.
+                    // 1024 is aggressive but safe for most modern browsers/devices.
+                    const bufferSize = isLowLatencyMode ? 1024 : 2048;
                     const processor = audioCtxInput.createScriptProcessor(bufferSize, 1, 1);
                     
                     sourceNodeRef.current = source;
@@ -361,21 +390,17 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       if (!isConnectedRef.current || !currentSessionRef.current) return;
                       const inputData = e.inputBuffer.getChannelData(0);
                       
-                      // VISUALIZER OPTIMIZATION:
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
                       
-                      // NOISE GATE & BANDWIDTH OPTIMIZATION
-                      // For "Smoothness", we send continuous streams even if silent,
-                      // unless it's strictly Eco Mode.
-                      // This helps the AI VAD (Voice Activity Detection) not cut out during pauses.
+                      // NOISE GATE
                       const NOISE_THRESHOLD = 0.01; 
                       
                       if (vol < NOISE_THRESHOLD) {
                           if (isEcoMode) {
                               silencePacketCountRef.current++;
-                              if (silencePacketCountRef.current > 10) return; // Allow some silence padding
+                              if (silencePacketCountRef.current > 10) return; 
                           }
                       } else {
                           silencePacketCountRef.current = 0;
@@ -399,27 +424,20 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const { serverContent } = msg;
 
                     if (serverContent?.interrupted) {
-                        // DISABLE INTERRUPTION: Do not stop audio to prevent cutting off replies.
-                        // stopAllAudio(); 
-                        // modelOutputBufferRef.current = ""; 
-                        console.log("Ignored interruption signal for stability.");
+                        console.log("Ignored interruption signal.");
                         return; 
                     }
 
-                    // --- HANDLE USER TRANSCRIPT ---
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
-                      // Safe buffer accumulation for wake word detection only
                       transcriptBufferRef.current += (" " + text);
                       
-                      // Keep buffer size manageable (max 500 chars)
                       if (transcriptBufferRef.current.length > 500) {
                           transcriptBufferRef.current = transcriptBufferRef.current.substring(transcriptBufferRef.current.length - 500);
                       }
                       
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
                       
-                      // --- WAKE WORD DETECTION (Paused -> Active) ---
                       if (wakeWord && isStandbyRef.current) {
                           const cleanWake = wakeWord.toLowerCase().trim();
                           if (cleanWake && bufferLower.includes(cleanWake)) {
@@ -428,7 +446,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                           }
                       }
 
-                      // --- STOP WORD DETECTION (Active -> Paused) ---
                       if (stopWord && !isStandbyRef.current) {
                           const cleanStop = stopWord.toLowerCase().trim();
                           if (cleanStop && bufferLower.includes(cleanStop)) {
@@ -437,37 +454,28 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                           }
                       }
                       
-                      // Legacy "Thank you" stop command (Backup)
                       if (!isStandbyRef.current && bufferLower.includes("thank you")) {
                           enterStandby();
                           transcriptBufferRef.current = ""; 
                       }
                     }
 
-                    // --- HANDLE MODEL OUTPUT ---
-                    // Note: We ignore outputTranscription for display purposes as per "Voice Only" requirement.
-
-                    // Buffer Audio Chunks
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (audioData) {
                         audioChunksBufferRef.current.push(audioData);
-                        // Trigger processing loop
                         if (!isStandbyRef.current) {
                             processAudioQueue();
                         } else {
-                            audioChunksBufferRef.current = []; // Discard audio if in standby
+                            audioChunksBufferRef.current = []; 
                         }
                     }
 
-                    // --- TURN COMPLETE ---
                     if (serverContent?.turnComplete) {
-                        // Do NOT add to messages state to strictly enforce NO TEXT history.
                         transcriptBufferRef.current = "";
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];
                     }
                     
-                    // Tool Calling Logic
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             const fcName = fc.name || "unknown_tool";
@@ -489,7 +497,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                                 const args = fcArgs as any;
                                 if (isRemoteMode) sendRemoteCommand(args.action, args.query);
                                 else {
-                                    // Execute locally if not in remote mode
                                     executeLocalAction(args.action, args.query);
                                 }
                             } 
