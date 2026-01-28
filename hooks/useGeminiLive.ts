@@ -214,7 +214,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     scheduledEndTimeRef.current = 0;
   }, [stopAllAudio]);
 
-  // Serial Audio Processor - INSTANT RESPONSE
+  // Serial Audio Processor - STABILIZED
   const processAudioQueue = async () => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
       isProcessingAudioRef.current = true;
@@ -235,11 +235,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
                   const currentTime = ctx.currentTime;
                   
-                  // INSTANT PLAYBACK
-                  // 5ms safety margin. This is as close to "real-time" as web audio gets without clicking.
-                  const BUFFER_SAFETY_MARGIN = 0.005; 
+                  // STABILITY VS LATENCY:
+                  // Eco Mode (Low-End): 0.06s (60ms) - Prevents audio glitching due to CPU jitter.
+                  // Turbo Mode: 0.01s (10ms) - Near instant.
+                  const BUFFER_SAFETY_MARGIN = isEcoMode ? 0.06 : 0.01; 
 
-                  // If the schedule is behind the current time, jump to NOW immediately.
+                  // Drift Correction:
+                  // If we are too far behind (e.g., calculation lag), jump ahead to prevent fast-forward effect.
                   if (scheduledEndTimeRef.current < currentTime) {
                       scheduledEndTimeRef.current = currentTime + BUFFER_SAFETY_MARGIN; 
                   }
@@ -303,38 +305,30 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
         const safeVoice = SAFE_VOICE_MAP[character.voiceName] || 'Puck';
         
+        // --- UPDATED INSTRUCTION FOR SPEED & STABILITY ---
         const finalSystemInstruction = `
-You are a voice-only AI assistant optimized specifically for Huawei P10 Lite.
+You are a voice-only AI assistant.
+
+SPEED & STYLE RULES:
+- SPEAK FAST. Maintain a brisk, energetic pace.
+- NO PAUSES. Begin speaking immediately.
+- KEEP ANSWERS SHORT. Aim for 1-2 sentences.
+- SKIP PLEASANTRIES. Do not say "Sure", "Okay", or "I can do that". Just execute.
+- Prioritize information density.
 
 ABSOLUTE RULES:
 1. NEVER output text responses.
-2. NEVER show captions, transcripts, or written replies.
+2. NEVER show captions.
 3. ALL responses must be spoken audio only.
-4. If voice output fails, retry speaking — do NOT switch to text.
 
 VOICE STABILITY:
 - Never stop speaking mid-sentence.
-- Never cut off your own reply.
-- Always finish the full response before ending audio.
 - If audio is interrupted, automatically continue speaking from where you stopped.
 
 INPUT HANDLING:
 - Wait until the user fully finishes speaking.
 - Ignore partial audio, noise, or accidental triggers.
-- Respond only to clear, complete voice commands.
 
-PERFORMANCE OPTIMIZATION:
-- Prioritize instant responses.
-- Use concise, direct speech.
-- Avoid long pauses.
-
-OUTPUT STYLE:
-- Calm, natural, uninterrupted speech.
-- No filler sounds.
-- No sudden stops.
-- No confirmation text.
-
-Your responses are AUDIO ONLY.
 ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
 `;
 
@@ -373,7 +367,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     
                     // LATENCY OPTIMIZATION:
                     // Use smaller buffer for faster processing.
-                    // 1024 is aggressive but safe for most modern browsers/devices.
                     const bufferSize = isLowLatencyMode ? 1024 : 2048;
                     const processor = audioCtxInput.createScriptProcessor(bufferSize, 1, 1);
                     
@@ -394,16 +387,20 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
                       
-                      // NOISE GATE
-                      const NOISE_THRESHOLD = 0.01; 
+                      // DYNAMIC NOISE GATE & ECHO SUPPRESSION
+                      // If the AI is speaking (activeSourcesRef > 0), raise the threshold significantly.
+                      // This prevents the AI from "hearing itself" via speaker echo and interrupting mid-sentence.
+                      const isAiSpeaking = activeSourcesRef.current.length > 0;
+                      const NOISE_THRESHOLD = isAiSpeaking ? 0.2 : 0.01; 
                       
                       if (vol < NOISE_THRESHOLD) {
                           if (isEcoMode) {
                               silencePacketCountRef.current++;
-                              if (silencePacketCountRef.current > 10) return; 
+                              if (silencePacketCountRef.current > 10) return; // Drop silence packets to save bandwidth
                           }
                       } else {
                           silencePacketCountRef.current = 0;
+                          // Only update last speech time if input is significant (not just background hum)
                           if (vol > 0.05) lastSpeechTimeRef.current = Date.now();
                       }
                       
