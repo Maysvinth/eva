@@ -77,15 +77,25 @@ export const APP_PROTOCOL_MAP: Record<string, string> = {
 // Helper function to launch protocols without navigating the main window (which would kill the AI connection)
 function launchCustomProtocol(url: string) {
     // Attempt 1: Hidden Iframe (Cleanest for apps)
+    // This technique allows the browser to trigger the external URI scheme handler
+    // WITHOUT unloading the current page or navigating away.
     try {
         const iframe = document.createElement('iframe');
         iframe.style.display = 'none';
         iframe.src = url;
         document.body.appendChild(iframe);
-        setTimeout(() => document.body.removeChild(iframe), 2000);
+        
+        // Clean up the iframe after a short delay to allow the handler to trigger
+        setTimeout(() => {
+            if (document.body.contains(iframe)) {
+                document.body.removeChild(iframe);
+            }
+            // Attempt to bring focus back to the window if the OS allows it
+            // This is "best effort" as OS level focus stealing is restricted
+            window.focus(); 
+        }, 1000);
     } catch (e) {
-        // Fallback if iframe fails (though strictly avoiding location.assign)
-        window.open(url, '_blank');
+        console.error("Protocol launch failed", e);
     }
 }
 
@@ -95,6 +105,7 @@ export function executeLocalAction(action: string, query: string) {
         if (action === 'open_url') {
             let url = q;
             if (!/^[a-z]+:/i.test(url)) url = 'https://' + url;
+            // Websites must open in a new tab to preserve the AI session
             window.open(url, '_blank');
         } 
         else if (action === 'play_music') {
@@ -129,8 +140,9 @@ export function executeLocalAction(action: string, query: string) {
                 if (target.startsWith('http')) {
                     window.open(target, '_blank');
                 } else {
-                    // CRITICAL: Do NOT use window.location.assign() or href=.
-                    // It causes the React app to unload/navigate, killing the connection.
+                    // CRITICAL: Custom protocols (apps) use the iframe method.
+                    // This ensures the React app does NOT unload, refresh, or stop.
+                    // The WebSocket connection remains active.
                     launchCustomProtocol(target);
                 }
             } else {
