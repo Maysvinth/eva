@@ -74,6 +74,21 @@ export const APP_PROTOCOL_MAP: Record<string, string> = {
   'powerpoint': 'ms-powerpoint:',
 };
 
+// Helper function to launch protocols without navigating the main window (which would kill the AI connection)
+function launchCustomProtocol(url: string) {
+    // Attempt 1: Hidden Iframe (Cleanest for apps)
+    try {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        setTimeout(() => document.body.removeChild(iframe), 2000);
+    } catch (e) {
+        // Fallback if iframe fails (though strictly avoiding location.assign)
+        window.open(url, '_blank');
+    }
+}
+
 export function executeLocalAction(action: string, query: string) {
     try {
         const q = query.trim();
@@ -85,7 +100,8 @@ export function executeLocalAction(action: string, query: string) {
         else if (action === 'play_music') {
             if (q.toLowerCase().includes('spotify')) {
                 const cleanSong = q.replace(/play|on|spotify/gi, '').trim();
-                window.location.assign(`spotify:search:${encodeURIComponent(cleanSong)}`);
+                // Use safe launch to prevent app reload
+                launchCustomProtocol(`spotify:search:${encodeURIComponent(cleanSong)}`);
             } else {
                 window.open(`https://music.youtube.com/search?q=${encodeURIComponent(q)}`, '_blank');
             }
@@ -104,16 +120,19 @@ export function executeLocalAction(action: string, query: string) {
             }
 
             // Domain Heuristic (e.g. "openai.com" sent as app)
-            // If the model mistakenly classifies a URL as 'open_app', we handle it here
             if (!target && (cleanQuery.includes('.com') || cleanQuery.includes('.org') || cleanQuery.includes('.net') || cleanQuery.includes('.io'))) {
                 target = cleanQuery.startsWith('http') ? cleanQuery : `https://${cleanQuery}`;
             }
 
             if (target) {
-                // Critical: location.assign is needed for Protocol Handlers to work without user interaction on some browsers
-                // If it's a website mapping (like youtube), open in new tab
-                if (target.startsWith('http')) window.open(target, '_blank');
-                else window.location.assign(target);
+                // If it's a website, open in new tab
+                if (target.startsWith('http')) {
+                    window.open(target, '_blank');
+                } else {
+                    // CRITICAL: Do NOT use window.location.assign() or href=.
+                    // It causes the React app to unload/navigate, killing the connection.
+                    launchCustomProtocol(target);
+                }
             } else {
                 // Fallback to Google Search if app not found
                 window.open(`https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`, '_blank');
