@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
-import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, hasSpeech, concatUint8Arrays } from '../utils/audio';
+import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, concatUint8Arrays } from '../utils/audio';
 import { CharacterProfile, ConnectionState, Message } from '../types';
 import { executeLocalAction } from '../utils/launcher';
 
@@ -123,6 +123,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     });
     activeSourcesRef.current = [];
     if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
+    // CRITICAL for Memory: Clear buffer immediately when stopping
     audioChunksBufferRef.current = []; 
     isProcessingAudioRef.current = false; 
   }, []);
@@ -176,6 +177,9 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
   const processAudioQueue = useCallback(() => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
+      // Safety check: Do not process if disconnected to prevent loops
+      if (!isConnectedRef.current) return;
+      
       isProcessingAudioRef.current = true;
 
       try {
@@ -198,7 +202,8 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           const audioBuffer = decodeAudioData(combinedUint8, ctx, 24000);
           
           const currentTime = ctx.currentTime;
-          const BUFFER_SAFETY_MARGIN = isEcoMode ? 0.1 : 0.01; 
+          // Optimization: Lower latency buffer for faster response
+          const BUFFER_SAFETY_MARGIN = isLowLatencyMode ? 0.005 : 0.05; 
 
           if (scheduledEndTimeRef.current < currentTime) {
               scheduledEndTimeRef.current = currentTime + BUFFER_SAFETY_MARGIN; 
@@ -221,17 +226,17 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           console.error("Audio processing error", e);
       } finally {
           isProcessingAudioRef.current = false;
-          if (!isEcoMode && audioChunksBufferRef.current.length > 0) {
+          // Continue processing if more chunks arrived
+          if (audioChunksBufferRef.current.length > 0) {
               setTimeout(processAudioQueue, 0);
           }
       }
-  }, [isEcoMode]);
+  }, [isLowLatencyMode]);
 
   const connect = useCallback(async () => {
     if (isConnectedRef.current || connectionState === 'connecting') return;
     if (autoReconnectTimerRef.current) clearTimeout(autoReconnectTimerRef.current);
 
-    // Debounce rapid reconnects
     if (Date.now() - lastDisconnectTimeRef.current < 1500) {
          console.warn("Rapid reconnect detected. Cooling down.");
          autoReconnectTimerRef.current = setTimeout(() => connect(), 2000);
@@ -243,7 +248,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
     setConnectionState('connecting');
     setError(null);
-    hasErrorRef.current = false; // Reset error flag
+    hasErrorRef.current = false; 
     
     activeConnectionParamsRef.current = { id: character.id, voiceName: character.voiceName, wakeWord: wakeWord, stopWord: stopWord, isLowLatency: isLowLatencyMode };
 
@@ -336,7 +341,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       
                       const inputData = e.inputBuffer.getChannelData(0);
                       
-                      // Calculate volume efficiently
+                      // VAD: Fast volume calculation
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
@@ -377,8 +382,8 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       const text = serverContent.inputTranscription.text;
                       transcriptBufferRef.current += (" " + text);
                       
-                      if (transcriptBufferRef.current.length > 500) {
-                          transcriptBufferRef.current = transcriptBufferRef.current.substring(transcriptBufferRef.current.length - 500);
+                      if (transcriptBufferRef.current.length > 300) {
+                          transcriptBufferRef.current = transcriptBufferRef.current.substring(transcriptBufferRef.current.length - 300);
                       }
                       
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
@@ -402,16 +407,15 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
 
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (audioData) {
-                        audioChunksBufferRef.current.push(audioData);
-                        if (!isStandbyRef.current && !isEcoMode) {
+                        // MEMORY OPTIMIZATION: Only buffer if active
+                        if (!isStandbyRef.current) {
+                            audioChunksBufferRef.current.push(audioData);
+                            // PERFORMANCE: Stream immediately. Visualizer handles UI load.
                             processAudioQueue();
                         }
                     }
 
                     if (serverContent?.turnComplete) {
-                        if (!isStandbyRef.current && isEcoMode) {
-                            processAudioQueue();
-                        }
                         transcriptBufferRef.current = "";
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];
@@ -430,13 +434,29 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                                 const args = fcArgs as any;
                                 if (args.command === 'pause' || args.command === 'stop') stopAllAudio();
                                 if (onMediaCommand) onMediaCommand(args.command);
-                                if (isRemoteMode) sendRemoteCommand('media_control', args.command);
+                                
+                                if (isRemoteMode) {
+                                    sendRemoteCommand('media_control', args.command);
+                                } else {
+                                    executeLocalAction('media_control', args.command);
+                                }
                                 result = { status: 'ok', command: args.command };
                             } 
                             else if (fcName === 'executeRemoteAction') {
                                 const args = fcArgs as any;
-                                if (isRemoteMode) sendRemoteCommand(args.action, args.query);
-                                else executeLocalAction(args.action, args.query);
+                                
+                                if (isRemoteMode) {
+                                    const sent = sendRemoteCommand(args.action, args.query);
+                                    if (sent) {
+                                        result = { status: 'ok', msg: 'Command sent to Core.' };
+                                    } else {
+                                        // Return error to model so it can respond normally
+                                        result = { status: 'error', msg: 'Device not connected. Cannot execute remote command.' };
+                                    }
+                                } else {
+                                    executeLocalAction(args.action, args.query);
+                                    result = { status: 'ok', msg: 'Executed locally.' };
+                                }
                             } 
                             session.sendToolResponse({ functionResponses: [{ id: fcId, name: fcName, response: result }] });
                         }
@@ -449,7 +469,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     setIsStandby(false);
                     isStandbyRef.current = false;
                     
-                    // STOP LOOP: Only autoreconnect if NO ERROR occurred
                     if (autoReconnect && !hasErrorRef.current && !isReconnectingRef.current) {
                         autoReconnectTimerRef.current = setTimeout(() => connect(), 2000);
                     }
@@ -458,11 +477,10 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const msg = String(err);
                     console.error("Gemini Error:", msg);
                     
-                    // Filter benign network glitches
                     if (!msg.includes("Network error") && !msg.includes("aborted")) { 
                         setError(msg); 
                         setConnectionState('error'); 
-                        hasErrorRef.current = true; // Mark that an error occurred
+                        hasErrorRef.current = true; 
                     }
                     isConnectedRef.current = false;
                 }

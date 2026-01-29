@@ -60,6 +60,7 @@ const App: React.FC = () => {
   const [settingsTab, setSettingsTab] = useState<'general' | 'personalities' | 'device_link' | 'voice'>('general');
   const [voiceFilter, setVoiceFilter] = useState<'All' | 'Male' | 'Female'>('All');
   const [targetCodeInput, setTargetCodeInput] = useState('');
+  const [showClientSetup, setShowClientSetup] = useState(false);
   const [isMediaPlaying, setIsMediaPlaying] = useState(false);
   
   // Creation Form State
@@ -479,7 +480,7 @@ const App: React.FC = () => {
                </h3>
                
                <button 
-                 onClick={() => { setSettingsTab('general'); setIsCreatingCustom(false); }}
+                 onClick={() => { setSettingsTab('general'); setIsCreatingCustom(false); setShowClientSetup(false); }}
                  className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'general' ? 'bg-cyan-900/20 text-cyan-400 border border-cyan-900' : 'text-gray-400 hover:bg-gray-800'}`}
                >
                  <Settings className="w-4 h-4" />
@@ -487,7 +488,7 @@ const App: React.FC = () => {
                </button>
 
                <button 
-                 onClick={() => { setSettingsTab('device_link'); setIsCreatingCustom(false); }}
+                 onClick={() => { setSettingsTab('device_link'); setIsCreatingCustom(false); setShowClientSetup(false); }}
                  className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'device_link' ? 'bg-purple-900/20 text-purple-400 border border-purple-900' : 'text-gray-400 hover:bg-gray-800'}`}
                >
                  <Wifi className="w-4 h-4" />
@@ -540,6 +541,31 @@ const App: React.FC = () => {
                                </div>
                            </div>
 
+                           {/* NEW: DEVICE CONNECTION QUICK TOGGLE */}
+                           <div className="p-4 bg-purple-900/10 rounded border border-purple-700/30 flex items-center justify-between">
+                               <div>
+                                   <div className="font-bold text-sm text-purple-400 flex items-center"><Wifi className="w-4 h-4 mr-2"/> Device Link Status</div>
+                                   <div className="text-xs text-gray-400">
+                                      {role === 'standalone' ? 'Not Linked' : (p2pStatus === 'connected' ? 'Connected to Core' : 'Connecting...')}
+                                   </div>
+                               </div>
+                               {role !== 'standalone' ? (
+                                   <button 
+                                     onClick={disconnectP2P}
+                                     className="px-3 py-1 bg-red-900/20 text-red-400 text-xs border border-red-500/30 rounded hover:bg-red-900/40"
+                                   >
+                                       Disconnect
+                                   </button>
+                               ) : (
+                                   <button 
+                                     onClick={() => setSettingsTab('device_link')}
+                                     className="px-3 py-1 bg-purple-900/20 text-purple-400 text-xs border border-purple-500/30 rounded hover:bg-purple-900/40"
+                                   >
+                                       Setup Link
+                                   </button>
+                               )}
+                           </div>
+
                            <div className="p-4 bg-gray-800/30 rounded border border-gray-800 flex items-center justify-between">
                                <div>
                                    <div className="font-bold text-sm text-gray-200">Always On / Wake Lock</div>
@@ -580,6 +606,132 @@ const App: React.FC = () => {
                            </div>
                        </div>
                    </div>
+               )}
+
+               {/* DEVICE LINK TAB (NEW) */}
+               {settingsTab === 'device_link' && (
+                  <div className="flex flex-col h-full animate-fade-in relative">
+                      <div className="flex items-center justify-between border-b border-gray-800 pb-2 mb-6">
+                         <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                             <Wifi className="w-5 h-5 text-purple-400" /> Device Neural Link
+                         </h4>
+                         {role !== 'standalone' && (
+                             <span className={`text-xs px-2 py-1 rounded border ${p2pStatus === 'connected' ? 'bg-green-900/30 border-green-500 text-green-400' : 'bg-yellow-900/30 border-yellow-500 text-yellow-400'}`}>
+                                 {p2pStatus.toUpperCase()}
+                             </span>
+                         )}
+                      </div>
+
+                      {/* STANDALONE SELECTION */}
+                      {role === 'standalone' && !showClientSetup && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full content-center pb-12">
+                              <button 
+                                onClick={initializeHost}
+                                className="flex flex-col items-center justify-center p-8 bg-gray-800/30 border border-gray-700 hover:border-purple-500 hover:bg-purple-900/10 rounded-2xl transition-all group"
+                              >
+                                  <Monitor className="w-16 h-16 text-gray-500 group-hover:text-purple-400 mb-6 transition-colors" />
+                                  <h3 className="text-2xl font-display font-bold text-white mb-2">Primary Core</h3>
+                                  <p className="text-sm text-gray-500 text-center">Use this device as the Display/Execution Unit (Laptop/PC)</p>
+                              </button>
+
+                              <button 
+                                onClick={() => setShowClientSetup(true)}
+                                className="flex flex-col items-center justify-center p-8 bg-gray-800/30 border border-gray-700 hover:border-cyan-500 hover:bg-cyan-900/10 rounded-2xl transition-all group"
+                              >
+                                  <Smartphone className="w-16 h-16 text-gray-500 group-hover:text-cyan-400 mb-6 transition-colors" />
+                                  <h3 className="text-2xl font-display font-bold text-white mb-2">Voice Module</h3>
+                                  <p className="text-sm text-gray-500 text-center">Use this device for Microphone/Audio Input (Mobile)</p>
+                              </button>
+                          </div>
+                      )}
+
+                      {/* HOST VIEW */}
+                      {role === 'host' && (
+                          <div className="flex flex-col items-center justify-center h-full pb-12 space-y-8">
+                               <div className="text-center">
+                                   <div className="text-sm text-purple-400 uppercase tracking-widest mb-4">Pairing Code</div>
+                                   <div className="text-7xl font-mono font-bold text-white tracking-wider bg-black/50 px-8 py-4 rounded-xl border border-purple-500/30 shadow-[0_0_30px_rgba(168,85,247,0.2)]">
+                                       {pairingCode}
+                                   </div>
+                               </div>
+                               
+                               <div className="flex flex-col items-center space-y-4">
+                                   {p2pStatus === 'connected' ? (
+                                       <div className="flex items-center space-x-3 text-green-400 bg-green-900/20 px-6 py-3 rounded-full border border-green-500/30">
+                                           <Wifi className="w-5 h-5 animate-pulse" />
+                                           <span className="font-bold tracking-wide">SYSTEMS LINKED</span>
+                                       </div>
+                                   ) : (
+                                       <div className="flex items-center space-x-3 text-gray-500 animate-pulse">
+                                           <Activity className="w-5 h-5" />
+                                           <span>Waiting for connection...</span>
+                                       </div>
+                                   )}
+                               </div>
+
+                               <button 
+                                  onClick={disconnectP2P}
+                                  className="px-6 py-2 text-red-400 hover:bg-red-900/20 rounded-full transition-colors border border-transparent hover:border-red-500/30 text-sm"
+                               >
+                                   Terminate Link
+                               </button>
+                          </div>
+                      )}
+
+                      {/* CLIENT SETUP VIEW (Local State) */}
+                      {showClientSetup && role === 'standalone' && (
+                          <div className="flex flex-col items-center justify-center h-full pb-12 space-y-6">
+                              <h3 className="text-xl font-bold text-white">Enter Core Code</h3>
+                              <input 
+                                  type="text" 
+                                  value={targetCodeInput}
+                                  onChange={(e) => setTargetCodeInput(e.target.value.toUpperCase())}
+                                  placeholder="XXXX"
+                                  maxLength={4}
+                                  className="bg-black/50 border border-gray-700 text-white text-4xl font-mono text-center w-48 py-4 rounded-xl focus:border-cyan-500 focus:outline-none tracking-widest"
+                              />
+                              <div className="flex space-x-4">
+                                  <button 
+                                      onClick={() => setShowClientSetup(false)}
+                                      className="px-6 py-3 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                                  >
+                                      Back
+                                  </button>
+                                  <button 
+                                      onClick={() => connectToHost(targetCodeInput)}
+                                      disabled={targetCodeInput.length < 4}
+                                      className="px-8 py-3 rounded-lg bg-cyan-600 text-white font-bold hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_20px_rgba(8,145,178,0.4)]"
+                                  >
+                                      Connect
+                                  </button>
+                              </div>
+                          </div>
+                      )}
+
+                      {/* CLIENT CONNECTED VIEW */}
+                      {role === 'remote' && (
+                          <div className="flex flex-col items-center justify-center h-full pb-12 space-y-8">
+                              <div className="w-32 h-32 rounded-full bg-cyan-900/20 border-2 border-cyan-500 flex items-center justify-center shadow-[0_0_40px_rgba(6,182,212,0.3)] relative">
+                                  <Smartphone className="w-12 h-12 text-cyan-400" />
+                                  <div className="absolute -right-2 -bottom-2 w-12 h-12 bg-gray-900 rounded-full border border-gray-700 flex items-center justify-center">
+                                      <Monitor className="w-6 h-6 text-purple-400" />
+                                  </div>
+                              </div>
+                              
+                              <div className="text-center">
+                                  <h3 className="text-2xl font-bold text-white mb-2">Linked to Core</h3>
+                                  <p className="text-gray-500">Voice commands will execute on external display.</p>
+                              </div>
+
+                              <button 
+                                  onClick={disconnectP2P}
+                                  className="px-6 py-2 text-red-400 hover:bg-red-900/20 rounded-full transition-colors border border-transparent hover:border-red-500/30 text-sm"
+                              >
+                                  Disconnect
+                              </button>
+                          </div>
+                      )}
+                  </div>
                )}
 
                {/* VOICE TAB */}
@@ -661,172 +813,111 @@ const App: React.FC = () => {
                                                             selectCustomCharacter(voice);
                                                             setPendingSelection(null);
                                                         }}
-                                                        className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-110"
+                                                        className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500/40 transition-colors"
                                                     >
-                                                        <CheckCircle className="w-6 h-6" />
+                                                        <CheckCircle className="w-5 h-5" />
                                                     </button>
                                                     <button 
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setPendingSelection(null);
                                                         }}
-                                                        className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all"
+                                                        className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/40 transition-colors"
                                                     >
-                                                        <X className="w-6 h-6" />
+                                                        <X className="w-5 h-5" />
                                                     </button>
                                                 </div>
                                            )}
-                                           
-                                           {/* Hover Gradient */}
-                                           <div className={`absolute inset-0 bg-gradient-to-br from-${voice.themeColor}-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
                                        </button>
-                                   )})}
-
-                                   {/* Standard Library */}
-                                   {VOICE_LIBRARY.filter(v => voiceFilter === 'All' || v.gender === voiceFilter).map((voice) => {
-                                       const isActive = activeCharacter.voiceName === voice.name && !customCharacters.some(c => c.id === activeCharacter.id);
-                                       const isPending = pendingSelection === voice.name;
-                                       
-                                       return (
-                                           <button
-                                               key={voice.name}
-                                               onClick={() => {
-                                                   if (isActive) return;
-                                                   setPendingSelection(voice.name);
-                                               }}
-                                               className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
-                                                   isActive 
-                                                   ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
-                                                   : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
-                                               }`}
-                                           >
-                                               <div className="flex justify-between items-start mb-2">
-                                                   <span className={`font-bold font-display tracking-wide transition-colors ${
-                                                       isActive ? `text-${voice.themeColor}-400` : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
-                                                   }`}>
-                                                       {voice.name}
-                                                   </span>
-                                                   {isActive && (
-                                                       <div className={`w-2 h-2 rounded-full bg-${voice.themeColor}-500 animate-pulse shadow-[0_0_8px_currentColor]`} />
-                                                   )}
-                                               </div>
-                                               
-                                               <div className="flex items-center space-x-2 mb-2">
-                                                   <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-${voice.themeColor}-900/30 text-${voice.themeColor}-300/70 border border-${voice.themeColor}-500/20`}>
-                                                       {voice.gender}
-                                                   </span>
-                                               </div>
-                                               
-                                               <p className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors line-clamp-2 leading-relaxed">
-                                                   {voice.description}
-                                               </p>
-
-                                               {/* CONFIRMATION OVERLAY */}
-                                               {isPending && (
-                                                    <div className="absolute inset-0 bg-black/90 z-30 flex items-center justify-center gap-4 animate-fade-in backdrop-blur-sm">
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleVoiceSelection(voice.name);
-                                                                setPendingSelection(null);
-                                                            }}
-                                                            className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-110"
-                                                        >
-                                                            <CheckCircle className="w-6 h-6" />
-                                                        </button>
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setPendingSelection(null);
-                                                            }}
-                                                            className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all"
-                                                        >
-                                                            <X className="w-6 h-6" />
-                                                        </button>
-                                                    </div>
-                                               )}
-
-                                               <div className={`absolute inset-0 bg-gradient-to-br from-${voice.themeColor}-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
-                                           </button>
                                        );
                                    })}
+
+                                   {/* Standard Library */}
+                                   {VOICE_LIBRARY
+                                       .filter(v => voiceFilter === 'All' || v.gender === voiceFilter)
+                                       .map(voice => (
+                                       <button
+                                           key={voice.name}
+                                           onClick={() => handleVoiceSelection(voice.name)}
+                                           className={`p-3 rounded-xl border text-left transition-all duration-300 group ${
+                                               activeCharacter.voiceName === voice.name
+                                               ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
+                                               : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
+                                           }`}
+                                       >
+                                           <div className="flex justify-between items-start mb-2">
+                                               <span className={`font-bold font-display tracking-wide transition-colors ${
+                                                   activeCharacter.voiceName === voice.name ? `text-${voice.themeColor}-400` : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
+                                               }`}>
+                                                   {voice.name}
+                                               </span>
+                                               <span className="text-[10px] text-gray-500">{voice.gender}</span>
+                                           </div>
+                                           <p className="text-xs text-gray-500 line-clamp-2">{voice.description}</p>
+                                       </button>
+                                   ))}
                                </div>
                            </>
                        ) : (
-                           /* CREATION FORM */
-                           <div className="flex flex-col h-full animate-fade-in">
-                               <div className="flex items-center justify-between border-b border-gray-800 pb-2 mb-4">
-                                   <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                                       <Plus className="w-5 h-5 text-cyan-400" /> Create Character
-                                   </h4>
-                                   <button 
-                                       onClick={() => setIsCreatingCustom(false)} 
-                                       className="text-gray-500 hover:text-white"
-                                   >
-                                       <X className="w-5 h-5" />
-                                   </button>
+                           <div className="animate-fade-in space-y-4">
+                               <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                                   <h4 className="text-lg font-bold text-white">Create Neural Personality</h4>
+                                   <button onClick={() => setIsCreatingCustom(false)} className="text-xs text-red-400 hover:text-red-300">Cancel</button>
                                </div>
-
-                               <div className="space-y-4 flex-1 overflow-y-auto pr-2">
+                               
+                               <div className="space-y-4">
                                    <div>
-                                       <label className="block text-xs text-gray-400 mb-1 uppercase font-mono">Character Name</label>
+                                       <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Name</label>
                                        <input 
                                            type="text" 
                                            value={newCharName}
-                                           onChange={(e) => setNewCharName(e.target.value)}
-                                           placeholder="e.g. JARVIS"
+                                           onChange={e => setNewCharName(e.target.value)}
                                            className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none"
-                                           maxLength={20}
+                                           placeholder="e.g. OMEGA"
                                        />
+                                   </div>
+                                   
+                                   <div>
+                                       <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Base Voice</label>
+                                       <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto custom-scrollbar p-1 border border-gray-800 rounded">
+                                           {VOICE_LIBRARY.map(v => (
+                                               <button
+                                                   key={v.name}
+                                                   onClick={() => setNewCharVoice(v.name)}
+                                                   className={`px-2 py-1 text-xs rounded border text-left ${
+                                                       newCharVoice === v.name
+                                                       ? `bg-${v.themeColor}-900/40 border-${v.themeColor}-500 text-${v.themeColor}-400`
+                                                       : 'bg-gray-900 border-gray-800 text-gray-500 hover:bg-gray-800'
+                                                   }`}
+                                               >
+                                                   {v.name}
+                                               </button>
+                                           ))}
+                                       </div>
                                    </div>
 
                                    <div>
-                                       <label className="block text-xs text-gray-400 mb-1 uppercase font-mono">Voice Base</label>
-                                       <select 
-                                           value={newCharVoice}
-                                           onChange={(e) => setNewCharVoice(e.target.value as VoiceName)}
-                                           className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none"
-                                       >
-                                           {VOICE_LIBRARY.map(v => (
-                                               <option key={v.name} value={v.name}>{v.name} ({v.gender}) - {v.description}</option>
-                                           ))}
-                                       </select>
-                                   </div>
-
-                                   <div className="flex-1 flex flex-col min-h-[150px]">
-                                       <label className="block text-xs text-gray-400 mb-1 uppercase font-mono">System Instructions</label>
+                                       <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">System Instructions</label>
                                        <textarea 
                                            value={newCharInstruction}
-                                           onChange={(e) => setNewCharInstruction(e.target.value)}
-                                           placeholder="Describe how this AI should behave. E.g., 'You are a sarcastic robot...'"
-                                           className="w-full flex-1 bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none resize-none text-sm font-mono leading-relaxed"
+                                           onChange={e => setNewCharInstruction(e.target.value)}
+                                           className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none h-32 text-sm"
+                                           placeholder="Describe personality, tone, and behavior..."
                                        />
                                    </div>
-                               </div>
 
-                               <button 
-                                   onClick={handleSaveCustomCharacter}
-                                   className="mt-4 w-full bg-cyan-900/50 hover:bg-cyan-800 border border-cyan-600/50 text-cyan-100 py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all"
-                               >
-                                   <Save className="w-4 h-4" /> Save Character
-                               </button>
+                                   <button 
+                                       onClick={handleSaveCustomCharacter}
+                                       className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-lg shadow-[0_0_15px_rgba(8,145,178,0.4)] transition-all"
+                                   >
+                                       Initialize Personality
+                                   </button>
+                               </div>
                            </div>
                        )}
                    </div>
                )}
-               {/* Device Link Content Kept Hidden for Brevity but it is there in original code... */}
-               {settingsTab === 'device_link' && role === 'standalone' && (
-                  <div className="flex items-center justify-center h-full text-gray-500">Select Mode above</div>
-               )}
             </div>
-
-            {/* Close Button Mobile */}
-            <button 
-                onClick={() => setShowSettings(false)}
-                className="absolute top-4 right-4 md:hidden p-2 bg-gray-800 rounded-full text-gray-400"
-            >
-                <EyeOff className="w-4 h-4" />
-            </button>
           </div>
         </div>
       )}
