@@ -86,7 +86,8 @@ const App: React.FC = () => {
   });
 
   // New State for Voice Selection Confirmation
-  const [pendingVoiceName, setPendingVoiceName] = useState<string | null>(null);
+  // This holds either the ID of a custom character OR the VoiceName of a library voice
+  const [pendingSelection, setPendingSelection] = useState<string | null>(null);
 
   // Notification / Feedback State
   const [feedback, setFeedback] = useState<{ message: string, icon: React.ReactNode, type: 'success' | 'info' } | null>(null);
@@ -616,10 +617,15 @@ const App: React.FC = () => {
 
                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto pr-2 custom-scrollbar pb-10">
                                    {/* Custom Characters First */}
-                                   {customCharacters.map((voice) => (
+                                   {customCharacters.map((voice) => {
+                                       const isPending = pendingSelection === voice.id;
+                                       return (
                                        <button
                                            key={voice.id}
-                                           onClick={() => selectCustomCharacter(voice)}
+                                           onClick={() => {
+                                                if (activeCharacter.id === voice.id) return;
+                                                setPendingSelection(voice.id);
+                                           }}
                                            className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
                                                activeCharacter.id === voice.id
                                                ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
@@ -645,49 +651,63 @@ const App: React.FC = () => {
                                                </span>
                                                <span className="text-[10px] text-gray-500">{voice.voiceName}</span>
                                            </div>
-                                            {/* Hover Gradient */}
+                                           
+                                           {/* CONFIRMATION OVERLAY */}
+                                           {isPending && (
+                                                <div className="absolute inset-0 bg-black/90 z-30 flex items-center justify-center gap-4 animate-fade-in backdrop-blur-sm">
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            selectCustomCharacter(voice);
+                                                            setPendingSelection(null);
+                                                        }}
+                                                        className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-110"
+                                                    >
+                                                        <CheckCircle className="w-6 h-6" />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setPendingSelection(null);
+                                                        }}
+                                                        className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all"
+                                                    >
+                                                        <X className="w-6 h-6" />
+                                                    </button>
+                                                </div>
+                                           )}
+                                           
+                                           {/* Hover Gradient */}
                                            <div className={`absolute inset-0 bg-gradient-to-br from-${voice.themeColor}-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
                                        </button>
-                                   ))}
+                                   )})}
 
                                    {/* Standard Library */}
                                    {VOICE_LIBRARY.filter(v => voiceFilter === 'All' || v.gender === voiceFilter).map((voice) => {
                                        const isActive = activeCharacter.voiceName === voice.name && !customCharacters.some(c => c.id === activeCharacter.id);
-                                       const isPending = pendingVoiceName === voice.name;
+                                       const isPending = pendingSelection === voice.name;
                                        
                                        return (
                                            <button
                                                key={voice.name}
                                                onClick={() => {
                                                    if (isActive) return;
-                                                   if (isPending) {
-                                                       handleVoiceSelection(voice.name);
-                                                       setPendingVoiceName(null);
-                                                   } else {
-                                                       setPendingVoiceName(voice.name);
-                                                   }
+                                                   setPendingSelection(voice.name);
                                                }}
                                                className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
                                                    isActive 
                                                    ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
-                                                   : isPending
-                                                       ? `bg-gray-800 border-gray-400 ring-1 ring-white/50` 
-                                                       : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
+                                                   : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
                                                }`}
                                            >
                                                <div className="flex justify-between items-start mb-2">
                                                    <span className={`font-bold font-display tracking-wide transition-colors ${
-                                                       isActive ? `text-${voice.themeColor}-400` : isPending ? 'text-white' : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
+                                                       isActive ? `text-${voice.themeColor}-400` : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
                                                    }`}>
                                                        {voice.name}
                                                    </span>
                                                    {isActive && (
                                                        <div className={`w-2 h-2 rounded-full bg-${voice.themeColor}-500 animate-pulse shadow-[0_0_8px_currentColor]`} />
-                                                   )}
-                                                   {isPending && !isActive && (
-                                                        <span className="text-[9px] bg-white text-black px-1.5 py-0.5 rounded font-bold uppercase animate-pulse">
-                                                            CONFIRM
-                                                        </span>
                                                    )}
                                                </div>
                                                
@@ -700,6 +720,32 @@ const App: React.FC = () => {
                                                <p className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors line-clamp-2 leading-relaxed">
                                                    {voice.description}
                                                </p>
+
+                                               {/* CONFIRMATION OVERLAY */}
+                                               {isPending && (
+                                                    <div className="absolute inset-0 bg-black/90 z-30 flex items-center justify-center gap-4 animate-fade-in backdrop-blur-sm">
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleVoiceSelection(voice.name);
+                                                                setPendingSelection(null);
+                                                            }}
+                                                            className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-110"
+                                                        >
+                                                            <CheckCircle className="w-6 h-6" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setPendingSelection(null);
+                                                            }}
+                                                            className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all"
+                                                        >
+                                                            <X className="w-6 h-6" />
+                                                        </button>
+                                                    </div>
+                                               )}
+
                                                <div className={`absolute inset-0 bg-gradient-to-br from-${voice.themeColor}-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none`} />
                                            </button>
                                        );
