@@ -132,6 +132,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     console.log("Entering Standby Mode");
     setIsStandby(true);
     isStandbyRef.current = true;
+    // In persistent mode, we only stop audio playback. We DO NOT close the session.
     stopAllAudio();
   }, [stopAllAudio]);
 
@@ -140,6 +141,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     setIsStandby(false);
     isStandbyRef.current = false;
     lastSpeechTimeRef.current = Date.now();
+    // Reset scheduling time to current to ensure instant response
     if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
   }, []);
 
@@ -177,7 +179,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
   const processAudioQueue = useCallback(() => {
       if (isProcessingAudioRef.current || !outputContextRef.current) return;
-      // Safety check: Do not process if disconnected to prevent loops
       if (!isConnectedRef.current) return;
       
       isProcessingAudioRef.current = true;
@@ -191,7 +192,13 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           const chunksToProcess = [...audioChunksBufferRef.current];
           audioChunksBufferRef.current = [];
 
-          if (!isConnectedRef.current || isStandbyRef.current) {
+          if (!isConnectedRef.current) {
+              isProcessingAudioRef.current = false;
+              return;
+          }
+
+          // GUARD: If in standby, do not play audio.
+          if (isStandbyRef.current) {
               isProcessingAudioRef.current = false;
               return;
           }
@@ -202,7 +209,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           const audioBuffer = decodeAudioData(combinedUint8, ctx, 24000);
           
           const currentTime = ctx.currentTime;
-          // Optimization: Lower latency buffer for faster response
           const BUFFER_SAFETY_MARGIN = isLowLatencyMode ? 0.005 : 0.05; 
 
           if (scheduledEndTimeRef.current < currentTime) {
@@ -226,7 +232,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
           console.error("Audio processing error", e);
       } finally {
           isProcessingAudioRef.current = false;
-          // Continue processing if more chunks arrived
           if (audioChunksBufferRef.current.length > 0) {
               setTimeout(processAudioQueue, 0);
           }
@@ -338,7 +343,9 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     sourceNodeRef.current = source;
                     processorNodeRef.current = processor;
 
+                    // Standby Auto-Entry Check
                     standbyCheckIntervalRef.current = setInterval(() => {
+                        // Only auto-enter standby if connected and NOT already in standby
                         if (Date.now() - lastSpeechTimeRef.current > 60000 && isConnectedRef.current && !isStandbyRef.current) { 
                             enterStandby();
                         }
@@ -386,6 +393,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const { serverContent } = msg;
                     if (serverContent?.interrupted) return;
 
+                    // TRANSCRIPT PROCESSING (Wake Word / Stop Word)
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
                       transcriptBufferRef.current += (" " + text);
@@ -396,50 +404,31 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
                       
+                      // WAKE WORD DETECTION
                       if (wakeWord && isStandbyRef.current) {
                           const cleanWake = wakeWord.toLowerCase().trim();
-                          try {
-                              // Escape regex special characters
-                              const escapedWake = cleanWake.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                              // Word boundary check for exact match
-                              const regex = new RegExp(`\\b${escapedWake}\\b`, 'i');
-                              if (regex.test(bufferLower)) {
+                          if (bufferLower.includes(cleanWake)) {
                                   exitStandby();
                                   transcriptBufferRef.current = ""; 
-                              }
-                          } catch (e) {
-                              // Fallback
-                              if (bufferLower.includes(cleanWake)) {
-                                  exitStandby();
-                                  transcriptBufferRef.current = ""; 
-                              }
                           }
                       }
 
+                      // STOP WORD DETECTION
                       if (stopWord && !isStandbyRef.current) {
                           const cleanStop = stopWord.toLowerCase().trim();
-                          try {
-                              const escapedStop = cleanStop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                              const regex = new RegExp(`\\b${escapedStop}\\b`, 'i');
-                              if (regex.test(bufferLower)) {
+                          if (cleanStop && bufferLower.includes(cleanStop)) {
                                   enterStandby();
                                   transcriptBufferRef.current = ""; 
-                              }
-                          } catch (e) {
-                              if (cleanStop && bufferLower.includes(cleanStop)) {
-                                  enterStandby();
-                                  transcriptBufferRef.current = ""; 
-                              }
                           }
                       }
                     }
 
+                    // AUDIO OUTPUT PROCESSING
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (audioData) {
-                        // MEMORY OPTIMIZATION: Only buffer if active
+                        // GUARD: If in standby, we discard audio packets to stay silent.
                         if (!isStandbyRef.current) {
                             audioChunksBufferRef.current.push(audioData);
-                            // PERFORMANCE: Stream immediately. Visualizer handles UI load.
                             processAudioQueue();
                         }
                     }
@@ -450,11 +439,25 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                         groundingSourcesRef.current = [];
                     }
                     
+                    // TOOL EXECUTION PROCESSING
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             const fcName = fc.name || "unknown_tool";
                             const fcId = fc.id || "unknown_id";
                             const fcArgs = fc.args || {};
+                            
+                            // GUARD: If in standby, intercept tools and prevent execution.
+                            if (isStandbyRef.current) {
+                                session.sendToolResponse({ 
+                                    functionResponses: [{ 
+                                        id: fcId, 
+                                        name: fcName, 
+                                        response: { result: "System in standby. Action ignored." } 
+                                    }] 
+                                });
+                                continue;
+                            }
+
                             let result: any = { status: 'ok' };
                             if (onToolExecuted) onToolExecuted(fcName, fcArgs);
 
@@ -479,7 +482,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                                     if (sent) {
                                         result = { status: 'ok', msg: 'Command sent to Core.' };
                                     } else {
-                                        // Return error to model so it can respond normally
                                         result = { status: 'error', msg: 'Device not connected. Cannot execute remote command.' };
                                     }
                                 } else {
