@@ -407,7 +407,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       // WAKE WORD DETECTION
                       if (wakeWord && isStandbyRef.current) {
                           const cleanWake = wakeWord.toLowerCase().trim();
-                          if (bufferLower.includes(cleanWake)) {
+                          if (cleanWake && bufferLower.includes(cleanWake)) {
                                   exitStandby();
                                   transcriptBufferRef.current = ""; 
                           }
@@ -434,7 +434,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     }
 
                     if (serverContent?.turnComplete) {
-                        transcriptBufferRef.current = "";
+                        // We DO NOT clear transcriptBufferRef here to prevent wake word loss across turns.
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];
                     }
@@ -448,7 +448,8 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                             
                             // GUARD: If in standby, intercept tools and prevent execution.
                             if (isStandbyRef.current) {
-                                session.sendToolResponse({ 
+                                // CRITICAL FIX: Use currentSessionRef.current instead of session variable
+                                currentSessionRef.current?.sendToolResponse({ 
                                     functionResponses: [{ 
                                         id: fcId, 
                                         name: fcName, 
@@ -489,7 +490,8 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                                     result = { status: 'ok', msg: 'Executed locally.' };
                                 }
                             } 
-                            session.sendToolResponse({ functionResponses: [{ id: fcId, name: fcName, response: result }] });
+                            // CRITICAL FIX: Use currentSessionRef.current
+                            currentSessionRef.current?.sendToolResponse({ functionResponses: [{ id: fcId, name: fcName, response: result }] });
                         }
                     }
                 },
