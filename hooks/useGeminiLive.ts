@@ -390,17 +390,38 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       
                       if (wakeWord && isStandbyRef.current) {
                           const cleanWake = wakeWord.toLowerCase().trim();
-                          if (cleanWake && bufferLower.includes(cleanWake)) {
-                              exitStandby();
-                              transcriptBufferRef.current = ""; 
+                          try {
+                              // Escape regex special characters
+                              const escapedWake = cleanWake.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                              // Word boundary check for exact match
+                              const regex = new RegExp(`\\b${escapedWake}\\b`, 'i');
+                              if (regex.test(bufferLower)) {
+                                  exitStandby();
+                                  transcriptBufferRef.current = ""; 
+                              }
+                          } catch (e) {
+                              // Fallback
+                              if (bufferLower.includes(cleanWake)) {
+                                  exitStandby();
+                                  transcriptBufferRef.current = ""; 
+                              }
                           }
                       }
 
                       if (stopWord && !isStandbyRef.current) {
                           const cleanStop = stopWord.toLowerCase().trim();
-                          if (cleanStop && bufferLower.includes(cleanStop)) {
-                              enterStandby();
-                              transcriptBufferRef.current = ""; 
+                          try {
+                              const escapedStop = cleanStop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                              const regex = new RegExp(`\\b${escapedStop}\\b`, 'i');
+                              if (regex.test(bufferLower)) {
+                                  enterStandby();
+                                  transcriptBufferRef.current = ""; 
+                              }
+                          } catch (e) {
+                              if (cleanStop && bufferLower.includes(cleanStop)) {
+                                  enterStandby();
+                                  transcriptBufferRef.current = ""; 
+                              }
                           }
                       }
                     }

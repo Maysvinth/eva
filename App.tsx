@@ -75,7 +75,9 @@ const App: React.FC = () => {
   
   // Config State
   const [wakeWord, setWakeWord] = useState<string>(() => localStorage.getItem('eva_wake_word') || '');
+  const [wakeWordEnabled, setWakeWordEnabled] = useState<boolean>(() => localStorage.getItem('eva_wake_word_enabled') !== 'false');
   const [stopWord, setStopWord] = useState<string>(() => localStorage.getItem('eva_stop_word') || 'Stop');
+  const [stopWordEnabled, setStopWordEnabled] = useState<boolean>(() => localStorage.getItem('eva_stop_word_enabled') !== 'false');
   const [alwaysOn, setAlwaysOn] = useState<boolean>(() => localStorage.getItem('eva_always_on') === 'true');
   const [isLowLatency, setIsLowLatency] = useState<boolean>(() => localStorage.getItem('eva_low_latency') === 'true');
   
@@ -161,7 +163,9 @@ const App: React.FC = () => {
   
   useEffect(() => { localStorage.setItem('eva_always_on', String(alwaysOn)); }, [alwaysOn]);
   useEffect(() => { localStorage.setItem('eva_wake_word', wakeWord); }, [wakeWord]);
+  useEffect(() => { localStorage.setItem('eva_wake_word_enabled', String(wakeWordEnabled)); }, [wakeWordEnabled]);
   useEffect(() => { localStorage.setItem('eva_stop_word', stopWord); }, [stopWord]);
+  useEffect(() => { localStorage.setItem('eva_stop_word_enabled', String(stopWordEnabled)); }, [stopWordEnabled]);
   useEffect(() => { localStorage.setItem('eva_low_latency', String(isLowLatency)); }, [isLowLatency]);
   useEffect(() => { localStorage.setItem('eva_eco_mode', String(isEcoMode)); }, [isEcoMode]);
   useEffect(() => { localStorage.setItem('eva_character_order', JSON.stringify(characterOrder)); }, [characterOrder]);
@@ -207,8 +211,8 @@ const App: React.FC = () => {
     isRemoteMode: role === 'remote',
     sendRemoteCommand: sendCommand,
     autoReconnect: alwaysOn,
-    wakeWord: wakeWord,
-    stopWord: stopWord,
+    wakeWord: wakeWordEnabled ? wakeWord : undefined,
+    stopWord: stopWordEnabled ? stopWord : undefined,
     isLowLatencyMode: isLowLatency,
     isEcoMode: isEcoMode,
     onToolExecuted: handleToolExecution,
@@ -409,7 +413,7 @@ const App: React.FC = () => {
                          <div className="bg-black/70 backdrop-blur-sm border border-amber-500/50 px-6 py-3 rounded-xl text-amber-500 font-mono tracking-widest animate-pulse flex flex-col items-center">
                              <Moon className="w-6 h-6 mb-2" />
                              <span>STANDBY MODE</span>
-                             <span className="text-[10px] opacity-70 mt-1">LISTENING FOR "{wakeWord}"</span>
+                             {wakeWordEnabled && <span className="text-[10px] opacity-70 mt-1">LISTENING FOR "{wakeWord}"</span>}
                          </div>
                      </div>
                  )}
@@ -520,23 +524,41 @@ const App: React.FC = () => {
                        <div className="space-y-4">
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                <div>
-                                   <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Wake Word</label>
+                                   <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-xs text-gray-500 uppercase font-mono">Wake Word Detection</label>
+                                        <button 
+                                            onClick={() => setWakeWordEnabled(!wakeWordEnabled)}
+                                            className={`w-8 h-4 rounded-full p-0.5 transition-colors ${wakeWordEnabled ? 'bg-cyan-600' : 'bg-gray-700'}`}
+                                        >
+                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform ${wakeWordEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                                        </button>
+                                   </div>
                                    <input 
                                      type="text" 
                                      defaultValue={wakeWord}
+                                     disabled={!wakeWordEnabled}
                                      onBlur={(e) => setWakeWord(e.target.value)}
                                      placeholder="e.g. Hey Eva"
-                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none placeholder-gray-600"
+                                     className={`w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none placeholder-gray-600 ${!wakeWordEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                                    />
                                </div>
                                <div>
-                                   <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Stop Word</label>
+                                   <div className="flex items-center justify-between mb-2 mt-7">
+                                        <label className="block text-xs text-gray-500 uppercase font-mono">Stop Word</label>
+                                        <button 
+                                            onClick={() => setStopWordEnabled(!stopWordEnabled)}
+                                            className={`w-8 h-4 rounded-full p-0.5 transition-colors ${stopWordEnabled ? 'bg-red-600' : 'bg-gray-700'}`}
+                                        >
+                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform ${stopWordEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                                        </button>
+                                   </div>
                                    <input 
                                      type="text" 
                                      defaultValue={stopWord}
+                                     disabled={!stopWordEnabled}
                                      onBlur={(e) => setStopWord(e.target.value)}
                                      placeholder="e.g. Stop"
-                                     className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-red-500 focus:outline-none placeholder-gray-600"
+                                     className={`w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-red-500 focus:outline-none placeholder-gray-600 ${!stopWordEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                                    />
                                </div>
                            </div>

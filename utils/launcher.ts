@@ -74,6 +74,22 @@ export const APP_PROTOCOL_MAP: Record<string, string> = {
   'powerpoint': 'ms-powerpoint:',
 };
 
+// Helper to open URLs in a new tab reliably using anchor click simulation
+// This bypasses some strict window.open() policies and ensures target="_blank"
+function openInNewTab(url: string) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        if (document.body.contains(a)) {
+            document.body.removeChild(a);
+        }
+    }, 100);
+}
+
 // Helper function to launch protocols without navigating the main window (which would kill the AI connection)
 function launchCustomProtocol(url: string) {
     // Attempt 1: Hidden Iframe (Cleanest for apps)
@@ -92,7 +108,7 @@ function launchCustomProtocol(url: string) {
             }
             // Attempt to bring focus back to the window if the OS allows it
             // This is "best effort" as OS level focus stealing is restricted
-            window.focus(); 
+            try { window.focus(); } catch (e) {}
         }, 1000);
     } catch (e) {
         console.error("Protocol launch failed", e);
@@ -106,7 +122,7 @@ export function executeLocalAction(action: string, query: string) {
             let url = q;
             if (!/^[a-z]+:/i.test(url)) url = 'https://' + url;
             // Websites must open in a new tab to preserve the AI session
-            window.open(url, '_blank');
+            openInNewTab(url);
         } 
         else if (action === 'play_music') {
             if (q.toLowerCase().includes('spotify')) {
@@ -114,11 +130,11 @@ export function executeLocalAction(action: string, query: string) {
                 // Use safe launch to prevent app reload
                 launchCustomProtocol(`spotify:search:${encodeURIComponent(cleanSong)}`);
             } else {
-                window.open(`https://music.youtube.com/search?q=${encodeURIComponent(q)}`, '_blank');
+                openInNewTab(`https://music.youtube.com/search?q=${encodeURIComponent(q)}`);
             }
         } 
         else if (action === 'play_video') {
-            window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`, '_blank');
+            openInNewTab(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`);
         } 
         else if (action === 'open_app') {
             const cleanQuery = q.toLowerCase().replace(/^(open|launch|run|check|read|go to)\s+/i, '').trim();
@@ -138,7 +154,7 @@ export function executeLocalAction(action: string, query: string) {
             if (target) {
                 // If it's a website, open in new tab
                 if (target.startsWith('http')) {
-                    window.open(target, '_blank');
+                    openInNewTab(target);
                 } else {
                     // CRITICAL: Custom protocols (apps) use the iframe method.
                     // This ensures the React app does NOT unload, refresh, or stop.
@@ -147,7 +163,7 @@ export function executeLocalAction(action: string, query: string) {
                 }
             } else {
                 // Fallback to Google Search if app not found
-                window.open(`https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`, '_blank');
+                openInNewTab(`https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`);
             }
         } 
         else if (action === 'media_control') {
