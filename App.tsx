@@ -256,11 +256,16 @@ const App: React.FC = () => {
   };
 
   const handleVoiceSelection = (voiceName: VoiceName) => {
-     // If we are editing a custom character or just creating one, this might be handled differently
-     // But for the main grid selection (overriding voice of current character):
+     if (activeCharacter.voiceName === voiceName) return; // Don't confirm if already selected
+     setPendingSelection(voiceName);
+  };
+
+  const confirmVoiceSelection = (voiceName: VoiceName) => {
      const voiceData = VOICE_LIBRARY.find(v => v.name === voiceName);
      if (voiceData) {
         setActiveCharacter(prev => ({ ...prev, voiceName: voiceName, themeColor: voiceData.themeColor, visualizerColor: voiceData.hexColor }));
+        setPendingSelection(null);
+        showFeedback(`Voice Changed: ${voiceName}`, <Activity className="w-4 h-4 text-cyan-400"/>);
      }
   };
 
@@ -828,26 +833,29 @@ const App: React.FC = () => {
                                            
                                            {/* CONFIRMATION OVERLAY */}
                                            {isPending && (
-                                                <div className="absolute inset-0 bg-black/90 z-30 flex items-center justify-center gap-4 animate-fade-in backdrop-blur-sm">
-                                                    <button 
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            selectCustomCharacter(voice);
-                                                            setPendingSelection(null);
-                                                        }}
-                                                        className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500/40 transition-colors"
-                                                    >
-                                                        <CheckCircle className="w-5 h-5" />
-                                                    </button>
-                                                    <button 
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setPendingSelection(null);
-                                                        }}
-                                                        className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/40 transition-colors"
-                                                    >
-                                                        <X className="w-5 h-5" />
-                                                    </button>
+                                                <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center animate-fade-in backdrop-blur-md rounded-xl p-2 cursor-default" onClick={(e) => e.stopPropagation()}>
+                                                    <span className="text-[10px] font-bold text-gray-400 mb-2 tracking-widest uppercase">Confirm Switch</span>
+                                                    <div className="flex items-center gap-4">
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                selectCustomCharacter(voice);
+                                                                setPendingSelection(null);
+                                                            }}
+                                                            className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                        >
+                                                            <CheckCircle className="w-5 h-5" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setPendingSelection(null);
+                                                            }}
+                                                            className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                        >
+                                                            <X className="w-5 h-5" />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                            )}
                                        </button>
@@ -857,11 +865,13 @@ const App: React.FC = () => {
                                    {/* Standard Library */}
                                    {VOICE_LIBRARY
                                        .filter(v => voiceFilter === 'All' || v.gender === voiceFilter)
-                                       .map(voice => (
+                                       .map(voice => {
+                                         const isPending = pendingSelection === voice.name;
+                                         return (
                                        <button
                                            key={voice.name}
                                            onClick={() => handleVoiceSelection(voice.name)}
-                                           className={`p-3 rounded-xl border text-left transition-all duration-300 group ${
+                                           className={`relative p-3 rounded-xl border text-left transition-all duration-300 group ${
                                                activeCharacter.voiceName === voice.name
                                                ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
                                                : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
@@ -876,8 +886,35 @@ const App: React.FC = () => {
                                                <span className="text-[10px] text-gray-500">{voice.gender}</span>
                                            </div>
                                            <p className="text-xs text-gray-500 line-clamp-2">{voice.description}</p>
+                                           
+                                           {/* CONFIRMATION OVERLAY */}
+                                           {isPending && (
+                                                <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center animate-fade-in backdrop-blur-md rounded-xl p-2 cursor-default" onClick={(e) => e.stopPropagation()}>
+                                                    <span className="text-[10px] font-bold text-gray-400 mb-2 tracking-widest uppercase">Confirm Switch</span>
+                                                    <div className="flex items-center gap-4">
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                confirmVoiceSelection(voice.name);
+                                                            }}
+                                                            className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                        >
+                                                            <CheckCircle className="w-5 h-5" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setPendingSelection(null);
+                                                            }}
+                                                            className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                        >
+                                                            <X className="w-5 h-5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                           )}
                                        </button>
-                                   ))}
+                                   )})}
                                </div>
                            </>
                        ) : (

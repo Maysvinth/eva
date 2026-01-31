@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
 import { pcmToGeminiBlob, base64ToUint8Array, decodeAudioData, concatUint8Arrays } from '../utils/audio';
@@ -5,13 +6,47 @@ import { CharacterProfile, ConnectionState, Message } from '../types';
 import { executeLocalAction } from '../utils/launcher';
 
 // Supported Voices Map
+// Mapped to the most realistic base Gemini voice for the character archetype
 const SAFE_VOICE_MAP: Record<string, string> = {
-  'Puck': 'Puck', 'Kael': 'Puck', 'Neo': 'Puck', 'Haruto': 'Puck', 'Shinji': 'Puck',
-  'Charon': 'Charon', 'Aqua': 'Charon', 'Atlas': 'Charon', 'Ghost': 'Charon', 'Orion': 'Charon',
-  'Fenrir': 'Fenrir', 'Ryu': 'Fenrir', 'Dante': 'Fenrir', 'Raiden': 'Fenrir', 'Blitz': 'Fenrir', 'Lynx': 'Fenrir',
-  'Kore': 'Kore', 'Akane': 'Kore', 'Nova': 'Kore', 'Aria': 'Kore', 'Miko': 'Kore', 'Leda': 'Kore',
-  'Aoede': 'Aoede', 'Ai': 'Aoede', 'Kana': 'Aoede', 'Solaris': 'Aoede', 'Viper': 'Aoede', 'Hana': 'Aoede', 'Pixie': 'Aoede',
-  'Zephyr': 'Zephyr', 'Ruby': 'Zephyr', 'Luna': 'Zephyr', 'Yuki': 'Zephyr', 'Siren': 'Zephyr', 'Vega': 'Zephyr'
+  // Original / Base
+  'Puck': 'Puck', 'Kore': 'Kore', 'Fenrir': 'Fenrir', 'Charon': 'Charon', 'Aoede': 'Aoede', 'Zephyr': 'Zephyr',
+  
+  // Anime Males
+  'Kael': 'Puck',       // Youthful protagonist
+  'Neo': 'Puck',        // Fast talker
+  'Haruto': 'Puck',     // Soft prince
+  'Shinji': 'Puck',     // Nervous/High pitch
+  'Masachika': 'Charon',// Lazy/Deep/Calm (Perfect for Kuze)
+  'Rintarou': 'Fenrir', // Scary/Rough voice (Perfect for Tsumugi)
+  'Ryu': 'Fenrir',      // Gritty hero
+  'Dante': 'Fenrir',    // Cool/Rough
+  'Raiden': 'Fenrir',   // Energetic
+  'Blitz': 'Fenrir',    // Aggressive
+  'Lynx': 'Fenrir',     // Tactical/Serious
+  'Atlas': 'Charon',    // Heavy/Deep
+  'Ghost': 'Charon',    // Whispery/Deep
+  'Orion': 'Charon',    // Philosophical/Deep
+  'Aqua': 'Charon',     // Calculating/Deep
+  
+  // Anime Females
+  'Alya': 'Aoede',      // Elegant/Proud/Ojou-sama (Perfect for Alya)
+  'Kaoruko': 'Zephyr',  // Sweet/Small/Airy (Perfect for Waguri)
+  'Ai': 'Aoede',        // Idol/Charismatic
+  'Kana': 'Aoede',      // Sassy
+  'Solaris': 'Zephyr',  // UPDATED: Chaotic/Tsundere (Better for Jinx)
+  'Viper': 'Aoede',     // Villainess/Haughty
+  'Hana': 'Zephyr',     // Genki/Fast
+  'Pixie': 'Zephyr',    // Magical/High
+  'Akane': 'Kore',      // Mature/Soft
+  'Nova': 'Kore',       // Robotic/Stable
+  'Aria': 'Kore',       // Healer/Warm
+  'Miko': 'Kore',       // Formal/Calm
+  'Leda': 'Kore',       // Guardian/Motherly
+  'Ruby': 'Zephyr',     // Energetic/Young
+  'Luna': 'Zephyr',     // Mystical/Soft
+  'Yuki': 'Zephyr',     // Ice/Cool
+  'Siren': 'Zephyr',    // Melodic
+  'Vega': 'Zephyr'      // Navigator/Light
 };
 
 const timeTool: FunctionDeclaration = {
@@ -99,7 +134,7 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
   const isReconnectingRef = useRef<boolean>(false);
   const isConnectedRef = useRef<boolean>(false);
   const lastDisconnectTimeRef = useRef<number>(0);
-  const hasErrorRef = useRef<boolean>(false); // CRITICAL FIX: Tracks errors synchronously
+  const hasErrorRef = useRef<boolean>(false); 
   
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const autoReconnectTimerRef = useRef<any>(null);
@@ -123,7 +158,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     });
     activeSourcesRef.current = [];
     if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
-    // CRITICAL for Memory: Clear buffer immediately when stopping
     audioChunksBufferRef.current = []; 
     isProcessingAudioRef.current = false; 
   }, []);
@@ -132,7 +166,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     console.log("Entering Standby Mode");
     setIsStandby(true);
     isStandbyRef.current = true;
-    // In persistent mode, we only stop audio playback. We DO NOT close the session.
     stopAllAudio();
   }, [stopAllAudio]);
 
@@ -141,7 +174,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
     setIsStandby(false);
     isStandbyRef.current = false;
     lastSpeechTimeRef.current = Date.now();
-    // Reset scheduling time to current to ensure instant response
     if (outputContextRef.current) scheduledEndTimeRef.current = outputContextRef.current.currentTime;
   }, []);
 
@@ -197,7 +229,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
               return;
           }
 
-          // GUARD: If in standby, do not play audio.
           if (isStandbyRef.current) {
               isProcessingAudioRef.current = false;
               return;
@@ -277,7 +308,6 @@ export const useGeminiLive = ({ character, onVisualizerUpdate, isRemoteMode, sen
 
         const safeVoice = SAFE_VOICE_MAP[character.voiceName] || 'Puck';
         
-        // Strict low-latency system instruction
         const finalSystemInstruction = `
 You are EVA AI.
 
@@ -343,9 +373,7 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     sourceNodeRef.current = source;
                     processorNodeRef.current = processor;
 
-                    // Standby Auto-Entry Check
                     standbyCheckIntervalRef.current = setInterval(() => {
-                        // Only auto-enter standby if connected and NOT already in standby
                         if (Date.now() - lastSpeechTimeRef.current > 60000 && isConnectedRef.current && !isStandbyRef.current) { 
                             enterStandby();
                         }
@@ -356,7 +384,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       
                       const inputData = e.inputBuffer.getChannelData(0);
                       
-                      // VAD: Fast volume calculation
                       let sum = 0;
                       for(let i=0; i<inputData.length; i+=50) sum += Math.abs(inputData[i]); 
                       const vol = (sum / (inputData.length/50)) * 5; 
@@ -393,7 +420,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     const { serverContent } = msg;
                     if (serverContent?.interrupted) return;
 
-                    // TRANSCRIPT PROCESSING (Wake Word / Stop Word)
                     if (serverContent?.inputTranscription?.text) {
                       const text = serverContent.inputTranscription.text;
                       transcriptBufferRef.current += (" " + text);
@@ -404,7 +430,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       
                       const bufferLower = transcriptBufferRef.current.toLowerCase();
                       
-                      // WAKE WORD DETECTION
                       if (wakeWord && isStandbyRef.current) {
                           const cleanWake = wakeWord.toLowerCase().trim();
                           if (cleanWake && bufferLower.includes(cleanWake)) {
@@ -413,7 +438,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                           }
                       }
 
-                      // STOP WORD DETECTION
                       if (stopWord && !isStandbyRef.current) {
                           const cleanStop = stopWord.toLowerCase().trim();
                           if (cleanStop && bufferLower.includes(cleanStop)) {
@@ -423,10 +447,8 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                       }
                     }
 
-                    // AUDIO OUTPUT PROCESSING
                     const audioData = serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                     if (audioData) {
-                        // GUARD: If in standby, we discard audio packets to stay silent.
                         if (!isStandbyRef.current) {
                             audioChunksBufferRef.current.push(audioData);
                             processAudioQueue();
@@ -434,21 +456,17 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                     }
 
                     if (serverContent?.turnComplete) {
-                        // We DO NOT clear transcriptBufferRef here to prevent wake word loss across turns.
                         modelOutputBufferRef.current = "";
                         groundingSourcesRef.current = [];
                     }
                     
-                    // TOOL EXECUTION PROCESSING
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         for (const fc of msg.toolCall.functionCalls) {
                             const fcName = fc.name || "unknown_tool";
                             const fcId = fc.id || "unknown_id";
                             const fcArgs = fc.args || {};
                             
-                            // GUARD: If in standby, intercept tools and prevent execution.
                             if (isStandbyRef.current) {
-                                // CRITICAL FIX: Use currentSessionRef.current instead of session variable
                                 currentSessionRef.current?.sendToolResponse({ 
                                     functionResponses: [{ 
                                         id: fcId, 
@@ -490,7 +508,6 @@ ${wakeWord ? `WAKE WORD: Listen for "${wakeWord}".` : ""}
                                     result = { status: 'ok', msg: 'Executed locally.' };
                                 }
                             } 
-                            // CRITICAL FIX: Use currentSessionRef.current
                             currentSessionRef.current?.sendToolResponse({ functionResponses: [{ id: fcId, name: fcName, response: result }] });
                         }
                     }

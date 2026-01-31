@@ -74,45 +74,55 @@ export const APP_PROTOCOL_MAP: Record<string, string> = {
   'powerpoint': 'ms-powerpoint:',
 };
 
-// Helper to open URLs in a new tab reliably using anchor click simulation
-// This bypasses some strict window.open() policies and ensures target="_blank"
+// Helper to open URLs in a new tab reliably using window.open
+// We use a slight delay to allow the AI session to stabilize before potential focus loss
 function openInNewTab(url: string) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
+    // Delay execution slightly to ensure WebSocket messages are processed
     setTimeout(() => {
-        if (document.body.contains(a)) {
-            document.body.removeChild(a);
+        try {
+            // Attempt standard window.open
+            const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+            if (newWindow) {
+                newWindow.opener = null;
+            } else {
+                // Fallback: Create and click anchor
+                const a = document.createElement('a');
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    if (document.body.contains(a)) document.body.removeChild(a);
+                }, 1000);
+            }
+        } catch (e) {
+            console.error("Failed to open tab:", e);
         }
     }, 100);
 }
 
-// Helper function to launch protocols without navigating the main window (which would kill the AI connection)
+// Helper function to launch protocols without navigating the main window
 function launchCustomProtocol(url: string) {
-    // Attempt 1: Hidden Iframe (Cleanest for apps)
-    // This technique allows the browser to trigger the external URI scheme handler
-    // WITHOUT unloading the current page or navigating away.
-    try {
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.src = url;
-        document.body.appendChild(iframe);
-        
-        // Clean up the iframe after a short delay to allow the handler to trigger
-        setTimeout(() => {
-            if (document.body.contains(iframe)) {
-                document.body.removeChild(iframe);
-            }
-            // Attempt to bring focus back to the window if the OS allows it
-            // This is "best effort" as OS level focus stealing is restricted
-            try { window.focus(); } catch (e) {}
-        }, 1000);
-    } catch (e) {
-        console.error("Protocol launch failed", e);
-    }
+    setTimeout(() => {
+        try {
+            // Attempt 1: Hidden Iframe (Cleanest for apps, avoids navigation)
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = url;
+            document.body.appendChild(iframe);
+            
+            // Clean up the iframe after a delay
+            setTimeout(() => {
+                if (document.body.contains(iframe)) {
+                    document.body.removeChild(iframe);
+                }
+            }, 3000);
+        } catch (e) {
+            console.error("Protocol launch failed:", e);
+        }
+    }, 100);
 }
 
 export function executeLocalAction(action: string, query: string) {
@@ -153,7 +163,7 @@ export function executeLocalAction(action: string, query: string) {
 
             if (target) {
                 // If it's a website, open in new tab
-                if (target.startsWith('http')) {
+                if (target.startsWith('http') || target.startsWith('https')) {
                     openInNewTab(target);
                 } else {
                     // CRITICAL: Custom protocols (apps) use the iframe method.

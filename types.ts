@@ -15,7 +15,9 @@ export type VoiceName =
   // Anime Females (10)
   'Luna' | 'Solaris' | 'Nova' | 'Aria' | 'Viper' | 'Miko' | 'Yuki' | 'Hana' | 'Pixie' | 'Siren' |
   // Oshi no Ko
-  'Ai' | 'Aqua' | 'Ruby' | 'Kana' | 'Akane';
+  'Ai' | 'Aqua' | 'Ruby' | 'Kana' | 'Akane' |
+  // Alya & Fragrant Flower
+  'Alya' | 'Masachika' | 'Kaoruko' | 'Rintarou';
 
 export interface CharacterProfile {
   id: string;
