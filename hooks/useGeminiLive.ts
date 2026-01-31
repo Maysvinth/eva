@@ -31,8 +31,9 @@ const SAFE_VOICE_MAP: Record<string, string> = {
   // Anime Females
   'Alya': 'Aoede',      // Elegant/Proud/Ojou-sama (Perfect for Alya)
   'Kaoruko': 'Zephyr',  // Sweet/Small/Airy (Perfect for Waguri)
+  'Niko': 'Zephyr',     // Energetic/Tomboy (Perfect for Niko)
   'Ai': 'Aoede',        // Idol/Charismatic
-  'Kana': 'Aoede',      // Sassy
+  'Kana': 'Aoede',      // Sassy (Used for Amethyst too)
   'Solaris': 'Zephyr',  // UPDATED: Chaotic/Tsundere (Better for Jinx)
   'Viper': 'Aoede',     // Villainess/Haughty
   'Hana': 'Zephyr',     // Genki/Fast

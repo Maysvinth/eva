@@ -17,7 +17,9 @@ export type VoiceName =
   // Oshi no Ko
   'Ai' | 'Aqua' | 'Ruby' | 'Kana' | 'Akane' |
   // Alya & Fragrant Flower
-  'Alya' | 'Masachika' | 'Kaoruko' | 'Rintarou';
+  'Alya' | 'Masachika' | 'Kaoruko' | 'Rintarou' |
+  // Mikadono
+  'Niko';
 
 export interface CharacterProfile {
   id: string;
