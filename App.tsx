@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Mic, MicOff, Settings, Terminal, Activity, Zap, Cloud, Key, Smartphone, Monitor, EyeOff, QrCode, Wifi, Laptop, Volume2, Power, ArrowRight, Play, Pause, SkipForward, SkipBack, Octagon, Users, Moon, Cable, Leaf, Lock, Globe, Music, Youtube, AppWindow, PlayCircle, CheckCircle, ChevronLeft, ChevronRight, Plus, Trash2, Save, X } from 'lucide-react';
 import AvatarVisualizer from './components/AvatarVisualizer';
+import AvatarOverlay from './components/AvatarOverlay';
 import { useGeminiLive } from './hooks/useGeminiLive';
 import { useDevicePairing } from './hooks/useDevicePairing';
 import { CHARACTERS, VOICE_LIBRARY } from './constants';
@@ -73,6 +74,9 @@ const App: React.FC = () => {
   const [isVoiceDetected, setIsVoiceDetected] = useState(false);
   const voiceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
+  // Avatar Mode State
+  const [isAvatarMode, setIsAvatarMode] = useState(false);
+
   // Config State
   const [wakeWord, setWakeWord] = useState<string>(() => localStorage.getItem('eva_wake_word') || '');
   const [wakeWordEnabled, setWakeWordEnabled] = useState<boolean>(() => localStorage.getItem('eva_wake_word_enabled') !== 'false');
@@ -315,671 +319,687 @@ const App: React.FC = () => {
   return (
     <div className={`h-[100dvh] bg-[#050505] text-white flex flex-col font-sans selection:bg-cyan-500/30 overflow-hidden relative transition-colors duration-1000`}>
       
-      {/* DYNAMIC THEME BACKGROUND GLOW */}
-      <div className={`absolute inset-0 bg-gradient-to-br from-${activeCharacter.themeColor}-900/20 via-transparent to-black pointer-events-none transition-all duration-1000`} />
+      {/* AVATAR OVERLAY SYSTEM */}
+      <AvatarOverlay 
+        activeCharacter={activeCharacter}
+        setActiveCharacter={setActiveCharacter}
+        connectionState={connectionState}
+        onConnect={connect}
+        onDisconnect={disconnect}
+        volumeRef={volumeRef}
+        isAvatarMode={isAvatarMode}
+        setIsAvatarMode={setIsAvatarMode}
+      />
+
+      {/* CONDITIONAL UI RENDERING: If Avatar Mode is active, hide everything else */}
+      <div className={`absolute inset-0 z-0 transition-opacity duration-500 ${isAvatarMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
       
-      {/* STATUS HUD OVERLAY */}
-      <div className="fixed top-0 left-0 w-full z-[100] pointer-events-none flex justify-center items-start p-2">
-          {/* Top Bar Container */}
-          <div className="flex items-center gap-4 bg-black/40 backdrop-blur-md px-6 py-2 rounded-full border border-white/5 shadow-lg mt-1">
-              {/* Running Indicator */}
-              <div className={`flex items-center gap-2 transition-all duration-300 ${connectionState === 'connected' ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
-                  <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                  <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-white/80">RUNNING</span>
-              </div>
+        {/* DYNAMIC THEME BACKGROUND GLOW */}
+        <div className={`absolute inset-0 bg-gradient-to-br from-${activeCharacter.themeColor}-900/20 via-transparent to-black pointer-events-none transition-all duration-1000`} />
+        
+        {/* STATUS HUD OVERLAY */}
+        <div className="fixed top-0 left-0 w-full z-[100] pointer-events-none flex justify-center items-start p-2">
+            {/* Top Bar Container */}
+            <div className="flex items-center gap-4 bg-black/40 backdrop-blur-md px-6 py-2 rounded-full border border-white/5 shadow-lg mt-1">
+                {/* Running Indicator */}
+                <div className={`flex items-center gap-2 transition-all duration-300 ${connectionState === 'connected' ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                    <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-white/80">RUNNING</span>
+                </div>
 
-              {/* Listening Indicator */}
-              <div className={`flex items-center gap-2 border-l border-white/10 pl-4 transition-all duration-150 ${isVoiceDetected ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
-                  <Mic className="w-3 h-3 text-cyan-400 animate-pulse" />
-                  <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-cyan-400 shadow-cyan-400/20">LISTENING</span>
-              </div>
-          </div>
+                {/* Listening Indicator */}
+                <div className={`flex items-center gap-2 border-l border-white/10 pl-4 transition-all duration-150 ${isVoiceDetected ? 'opacity-100' : 'opacity-0 w-0 overflow-hidden'}`}>
+                    <Mic className="w-3 h-3 text-cyan-400 animate-pulse" />
+                    <span className="text-[10px] font-mono font-bold tracking-[0.2em] text-cyan-400 shadow-cyan-400/20">LISTENING</span>
+                </div>
+            </div>
 
-          {/* Settings Button - Absolute Right Corner */}
-          <div className="absolute top-3 right-4 pointer-events-auto">
-             <button 
-               onClick={() => setShowSettings(!showSettings)}
-               className="p-2 hover:bg-gray-800/80 rounded-full transition-colors bg-black/40 border border-white/10 backdrop-blur-sm group"
-               aria-label="Settings"
-             >
-               <Settings className={`w-5 h-5 text-gray-400 group-hover:text-white transition-transform duration-500 ${showSettings ? 'rotate-90' : ''}`} />
-             </button>
-          </div>
-      </div>
+            {/* Settings Button - Absolute Right Corner */}
+            <div className="absolute top-3 right-4 pointer-events-auto">
+               <button 
+                 onClick={() => setShowSettings(!showSettings)}
+                 className="p-2 hover:bg-gray-800/80 rounded-full transition-colors bg-black/40 border border-white/10 backdrop-blur-sm group"
+                 aria-label="Settings"
+               >
+                 <Settings className={`w-5 h-5 text-gray-400 group-hover:text-white transition-transform duration-500 ${showSettings ? 'rotate-90' : ''}`} />
+               </button>
+            </div>
+        </div>
 
-      {/* Feedback Toast Notification */}
-      {feedback && (
-          <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-[100] animate-fade-in-up">
-              <div className="bg-gray-900/90 backdrop-blur-md border border-gray-700/50 rounded-full px-6 py-3 shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center space-x-3">
-                  <div className="p-1.5 rounded-full bg-gray-800 border border-gray-700">
-                      {feedback.icon}
-                  </div>
-                  <span className="text-sm font-mono text-gray-200 tracking-wide">{feedback.message}</span>
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_5px_currentColor]" />
-              </div>
-          </div>
-      )}
+        {/* Feedback Toast Notification */}
+        {feedback && (
+            <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-[100] animate-fade-in-up">
+                <div className="bg-gray-900/90 backdrop-blur-md border border-gray-700/50 rounded-full px-6 py-3 shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center space-x-3">
+                    <div className="p-1.5 rounded-full bg-gray-800 border border-gray-700">
+                        {feedback.icon}
+                    </div>
+                    <span className="text-sm font-mono text-gray-200 tracking-wide">{feedback.message}</span>
+                    <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_5px_currentColor]" />
+                </div>
+            </div>
+        )}
 
-      {/* Header - Single Voice Selector with Arrows */}
-      <div className="absolute top-16 left-0 w-full z-40 flex justify-center pointer-events-none">
-           <div className="pointer-events-auto flex items-center justify-between bg-gray-900/60 rounded-full p-1 border border-white/10 backdrop-blur-md shadow-xl w-[280px] sm:w-[320px]">
+        {/* Header - Single Voice Selector with Arrows */}
+        <div className="absolute top-16 left-0 w-full z-40 flex justify-center pointer-events-none">
+             <div className="pointer-events-auto flex items-center justify-between bg-gray-900/60 rounded-full p-1 border border-white/10 backdrop-blur-md shadow-xl w-[280px] sm:w-[320px]">
+               
+               <button 
+                 onClick={() => cycleCharacter('prev')}
+                 className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                 aria-label="Previous Voice"
+               >
+                 <ChevronLeft className="w-5 h-5" />
+               </button>
+
+               <div className="flex flex-col items-center justify-center flex-1 px-2 overflow-hidden">
+                  <span className={`text-xs font-bold tracking-widest text-${activeCharacter.themeColor}-400 uppercase truncate max-w-full animate-fade-in`}>
+                      {activeCharacter.name}
+                  </span>
+                  <span className="text-[9px] text-gray-500 font-mono truncate max-w-full">
+                      {activeCharacter.voiceName} • {VOICE_LIBRARY.find(v => v.name === activeCharacter.voiceName)?.gender || 'AI'}
+                  </span>
+               </div>
+
+               <button 
+                 onClick={() => cycleCharacter('next')}
+                 className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                 aria-label="Next Voice"
+               >
+                 <ChevronRight className="w-5 h-5" />
+               </button>
+               
+             </div>
+        </div>
+
+        {/* Main Content - FULL WIDTH - NO CHAT HISTORY */}
+        <main className="flex-1 flex pt-16 h-full relative w-full items-center justify-center">
+          <div className="flex flex-col relative w-full h-full justify-center items-center">
              
-             <button 
-               onClick={() => cycleCharacter('prev')}
-               className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-               aria-label="Previous Voice"
-             >
-               <ChevronLeft className="w-5 h-5" />
-             </button>
+             {/* Visualizer Container - Static Mode */}
+             <div className="flex-1 flex items-center justify-center relative z-10 overflow-hidden w-full">
+                <div className="w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:w-[400px] md:h-[400px] relative transition-all duration-500">
+                   
+                   {/* Voice Tag HUD */}
+                   <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 text-[10px] font-mono tracking-widest bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-${activeCharacter.themeColor}-500/30 shadow-[0_0_15px_rgba(0,0,0,0.5)] transition-all duration-500 flex items-center space-x-2 whitespace-nowrap z-20`}>
+                      <span className="text-gray-500 hidden sm:inline">VOICE MODULE</span>
+                      <div className={`w-1 h-1 bg-${activeCharacter.themeColor}-500 rounded-full animate-pulse`} />
+                      <span 
+                          className={`font-bold transition-colors duration-500 text-${activeCharacter.themeColor}-400 drop-shadow-[0_0_8px_rgba(0,0,0,0.5)]`}
+                          style={{ color: activeCharacter.visualizerColor }}
+                      >
+                          {activeCharacter.voiceName.toUpperCase()}
+                      </span>
+                   </div>
+                   
+                   {/* Standby Overlay */}
+                   {isStandby && connectionState === 'connected' && (
+                       <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+                           <div className="bg-black/70 backdrop-blur-sm border border-amber-500/50 px-6 py-3 rounded-xl text-amber-500 font-mono tracking-widest animate-pulse flex flex-col items-center">
+                               <Moon className="w-6 h-6 mb-2" />
+                               <span>STANDBY MODE</span>
+                               {wakeWordEnabled && <span className="text-[10px] opacity-70 mt-1">LISTENING FOR "{wakeWord}"</span>}
+                           </div>
+                       </div>
+                   )}
 
-             <div className="flex flex-col items-center justify-center flex-1 px-2 overflow-hidden">
-                <span className={`text-xs font-bold tracking-widest text-${activeCharacter.themeColor}-400 uppercase truncate max-w-full animate-fade-in`}>
-                    {activeCharacter.name}
-                </span>
-                <span className="text-[9px] text-gray-500 font-mono truncate max-w-full">
-                    {activeCharacter.voiceName} • {VOICE_LIBRARY.find(v => v.name === activeCharacter.voiceName)?.gender || 'AI'}
-                </span>
+                   <AvatarVisualizer 
+                     volumeRef={volumeRef} 
+                     color={activeCharacter.visualizerColor}
+                     isActive={connectionState === 'connected' && !isStandby}
+                     ecoMode={isEcoMode}
+                   />
+                </div>
              </div>
 
-             <button 
-               onClick={() => cycleCharacter('next')}
-               className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-               aria-label="Next Voice"
-             >
-               <ChevronRight className="w-5 h-5" />
-             </button>
-             
-           </div>
-      </div>
+             {/* Controls */}
+             <div className="p-4 sm:p-8 flex flex-col items-center justify-center space-y-4 z-20 pb-24 sm:pb-8">
+                <div className="text-center mb-2 sm:mb-4">
+                   <h2 className={`text-xl sm:text-2xl font-display font-bold text-${activeCharacter.themeColor}-500 tracking-wider transition-colors duration-500`}>
+                     {activeCharacter.name}
+                   </h2>
+                   <p className="text-gray-500 text-xs sm:text-sm font-mono mt-1">
+                     {connectionState === 'connected' ? (isStandby ? 'STANDBY' : 'ONLINE') : connectionState.toUpperCase()}
+                   </p>
+                </div>
 
-      {/* Main Content - FULL WIDTH - NO CHAT HISTORY */}
-      <main className="flex-1 flex pt-16 h-full relative w-full items-center justify-center">
-        <div className="flex flex-col relative w-full h-full justify-center items-center">
-           
-           {/* Visualizer Container - Static Mode */}
-           <div className="flex-1 flex items-center justify-center relative z-10 overflow-hidden w-full">
-              <div className="w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] md:w-[400px] md:h-[400px] relative transition-all duration-500">
-                 
-                 {/* Voice Tag HUD */}
-                 <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 text-[10px] font-mono tracking-widest bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-${activeCharacter.themeColor}-500/30 shadow-[0_0_15px_rgba(0,0,0,0.5)] transition-all duration-500 flex items-center space-x-2 whitespace-nowrap z-20`}>
-                    <span className="text-gray-500 hidden sm:inline">VOICE MODULE</span>
-                    <div className={`w-1 h-1 bg-${activeCharacter.themeColor}-500 rounded-full animate-pulse`} />
-                    <span 
-                        className={`font-bold transition-colors duration-500 text-${activeCharacter.themeColor}-400 drop-shadow-[0_0_8px_rgba(0,0,0,0.5)]`}
-                        style={{ color: activeCharacter.visualizerColor }}
+                {/* Main Mic & Always On */}
+                <div className="flex flex-col items-center gap-4">
+                    <button
+                      onClick={handleToggleConnection}
+                      className={`
+                        group relative flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 transition-all duration-300
+                        ${connectionState === 'connected' 
+                          ? (isStandby 
+                              ? `border-amber-500/50 bg-amber-900/10` 
+                              : `border-${activeCharacter.themeColor}-500/50 bg-${activeCharacter.themeColor}-900/10 hover:bg-${activeCharacter.themeColor}-900/30`)
+                          : `border-${activeCharacter.themeColor}-500/50 bg-${activeCharacter.themeColor}-900/10 hover:bg-${activeCharacter.themeColor}-900/30`}
+                        ${connectionState === 'connecting' ? 'animate-pulse' : ''}
+                      `}
                     >
-                        {activeCharacter.voiceName.toUpperCase()}
-                    </span>
-                 </div>
+                       {connectionState === 'connected' ? (
+                          isStandby ? <Moon className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500" /> : <MicOff className={`w-6 h-6 sm:w-8 sm:h-8 text-${activeCharacter.themeColor}-400`} />
+                       ) : (
+                          <Mic className={`w-6 h-6 sm:w-8 sm:h-8 text-${activeCharacter.themeColor}-400 group-hover:scale-110 transition-transform`} />
+                       )}
+                       {connectionState === 'connected' && !isStandby && (
+                          <span className={`absolute inset-0 rounded-full border border-${activeCharacter.themeColor}-500 animate-ping opacity-20`}></span>
+                       )}
+                    </button>
+                </div>
+             </div>
+          </div>
+
+          {error && (
+              <div className="absolute bottom-24 bg-red-900/80 text-red-100 px-4 py-2 rounded-full text-xs font-mono border border-red-500/50">
+                ERROR: {error}
+              </div>
+          )}
+        </main>
+      
+        {/* Settings Modal */}
+        {showSettings && (
+          <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-4xl w-full h-[600px] flex shadow-2xl relative overflow-hidden flex-col md:flex-row">
+              
+              {/* Sidebar */}
+              <div className="w-full md:w-64 bg-black/40 border-r border-gray-800 p-4 flex flex-col space-y-2">
+                 <h3 className="text-xl font-display font-bold text-white mb-6 flex items-center">
+                   <Settings className="w-5 h-5 mr-2 text-cyan-500" /> CONFIG
+                 </h3>
                  
-                 {/* Standby Overlay */}
-                 {isStandby && connectionState === 'connected' && (
-                     <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
-                         <div className="bg-black/70 backdrop-blur-sm border border-amber-500/50 px-6 py-3 rounded-xl text-amber-500 font-mono tracking-widest animate-pulse flex flex-col items-center">
-                             <Moon className="w-6 h-6 mb-2" />
-                             <span>STANDBY MODE</span>
-                             {wakeWordEnabled && <span className="text-[10px] opacity-70 mt-1">LISTENING FOR "{wakeWord}"</span>}
+                 <button 
+                   onClick={() => { setSettingsTab('general'); setIsCreatingCustom(false); setShowClientSetup(false); }}
+                   className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'general' ? 'bg-cyan-900/20 text-cyan-400 border border-cyan-900' : 'text-gray-400 hover:bg-gray-800'}`}
+                 >
+                   <Settings className="w-4 h-4" />
+                   <span>General</span>
+                 </button>
+
+                 <button 
+                   onClick={() => { setSettingsTab('device_link'); setIsCreatingCustom(false); setShowClientSetup(false); }}
+                   className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'device_link' ? 'bg-purple-900/20 text-purple-400 border border-purple-900' : 'text-gray-400 hover:bg-gray-800'}`}
+                 >
+                   <Wifi className="w-4 h-4" />
+                   <span>Device Link</span>
+                 </button>
+
+                 <button 
+                   onClick={() => setSettingsTab('voice')}
+                   className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'voice' ? 'bg-pink-900/20 text-pink-400 border border-pink-900' : 'text-gray-400 hover:bg-gray-800'}`}
+                 >
+                   <Volume2 className="w-4 h-4" />
+                   <span>Voices</span>
+                 </button>
+
+                  <div className="flex-1" />
+                  <button onClick={() => setShowSettings(false)} className="px-4 py-3 text-gray-500 hover:text-white text-left text-sm">
+                      Close Menu
+                  </button>
+              </div>
+
+              {/* Content Area */}
+              <div className="flex-1 bg-gray-900/50 p-6 overflow-y-auto">
+                 
+                 {/* GENERAL TAB */}
+                 {settingsTab === 'general' && (
+                     <div className="space-y-6 animate-fade-in">
+                         <h4 className="text-lg font-bold text-white border-b border-gray-800 pb-2">Voice Protocols</h4>
+                         
+                         <div className="space-y-4">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                 <div>
+                                     <div className="flex items-center justify-between mb-2">
+                                          <label className="block text-xs text-gray-500 uppercase font-mono">Wake Word Detection</label>
+                                          <button 
+                                              onClick={() => setWakeWordEnabled(!wakeWordEnabled)}
+                                              className={`w-8 h-4 rounded-full p-0.5 transition-colors ${wakeWordEnabled ? 'bg-cyan-600' : 'bg-gray-700'}`}
+                                          >
+                                              <div className={`w-3 h-3 bg-white rounded-full transition-transform ${wakeWordEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                                          </button>
+                                     </div>
+                                     <input 
+                                       type="text" 
+                                       defaultValue={wakeWord}
+                                       disabled={!wakeWordEnabled}
+                                       onBlur={(e) => setWakeWord(e.target.value)}
+                                       placeholder="e.g. Hey Eva"
+                                       className={`w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none placeholder-gray-600 ${!wakeWordEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                     />
+                                 </div>
+                                 <div>
+                                     <div className="flex items-center justify-between mb-2 mt-7">
+                                          <label className="block text-xs text-gray-500 uppercase font-mono">Stop Word</label>
+                                          <button 
+                                              onClick={() => setStopWordEnabled(!stopWordEnabled)}
+                                              className={`w-8 h-4 rounded-full p-0.5 transition-colors ${stopWordEnabled ? 'bg-red-600' : 'bg-gray-700'}`}
+                                          >
+                                              <div className={`w-3 h-3 bg-white rounded-full transition-transform ${stopWordEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                                          </button>
+                                     </div>
+                                     <input 
+                                       type="text" 
+                                       defaultValue={stopWord}
+                                       disabled={!stopWordEnabled}
+                                       onBlur={(e) => setStopWord(e.target.value)}
+                                       placeholder="e.g. Stop"
+                                       className={`w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-red-500 focus:outline-none placeholder-gray-600 ${!stopWordEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                     />
+                                 </div>
+                             </div>
+
+                             {/* NEW: DEVICE CONNECTION QUICK TOGGLE */}
+                             <div className="p-4 bg-purple-900/10 rounded border border-purple-700/30 flex items-center justify-between">
+                                 <div>
+                                     <div className="font-bold text-sm text-purple-400 flex items-center"><Wifi className="w-4 h-4 mr-2"/> Device Link Status</div>
+                                     <div className="text-xs text-gray-400">
+                                        {role === 'standalone' ? 'Not Linked' : (p2pStatus === 'connected' ? 'Connected to Core' : 'Connecting...')}
+                                     </div>
+                                 </div>
+                                 {role !== 'standalone' ? (
+                                     <button 
+                                       onClick={disconnectP2P}
+                                       className="px-3 py-1 bg-red-900/20 text-red-400 text-xs border border-red-500/30 rounded hover:bg-red-900/40"
+                                     >
+                                         Disconnect
+                                     </button>
+                                 ) : (
+                                     <button 
+                                       onClick={() => setSettingsTab('device_link')}
+                                       className="px-3 py-1 bg-purple-900/20 text-purple-400 text-xs border border-purple-500/30 rounded hover:bg-purple-900/40"
+                                     >
+                                         Setup Link
+                                     </button>
+                                 )}
+                             </div>
+
+                             <div className="p-4 bg-gray-800/30 rounded border border-gray-800 flex items-center justify-between">
+                                 <div>
+                                     <div className="font-bold text-sm text-gray-200">Always On / Wake Lock</div>
+                                     <div className="text-xs text-gray-500">Prevents Android "Doze" mode. Keep screen active.</div>
+                                 </div>
+                                 <button 
+                                   onClick={() => setAlwaysOn(!alwaysOn)}
+                                   className={`w-12 h-6 rounded-full p-1 transition-colors ${alwaysOn ? 'bg-green-600' : 'bg-gray-700'}`}
+                                 >
+                                     <div className={`w-4 h-4 bg-white rounded-full transition-transform ${alwaysOn ? 'translate-x-6' : 'translate-x-0'}`} />
+                                 </button>
+                             </div>
+                             
+                             <div className="p-4 bg-yellow-900/10 rounded border border-yellow-700/30 flex items-center justify-between">
+                                 <div>
+                                     <div className="font-bold text-sm text-yellow-500 flex items-center"><Zap className="w-4 h-4 mr-2"/> Turbo / Wired Mode</div>
+                                     <div className="text-xs text-gray-400">Optimizes for USB Tethering or high-speed connections.<br/>Reduces latency buffers for instant response.</div>
+                                 </div>
+                                 <button 
+                                   onClick={toggleLowLatency}
+                                   className={`w-12 h-6 rounded-full p-1 transition-colors ${isLowLatency ? 'bg-yellow-600' : 'bg-gray-700'}`}
+                                 >
+                                     <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isLowLatency ? 'translate-x-6' : 'translate-x-0'}`} />
+                                 </button>
+                             </div>
+
+                             <div className="p-4 bg-green-900/10 rounded border border-green-700/30 flex items-center justify-between">
+                                 <div>
+                                     <div className="font-bold text-sm text-green-500 flex items-center"><Leaf className="w-4 h-4 mr-2"/> Eco / Stability Mode</div>
+                                     <div className="text-xs text-gray-400">Essential for older devices (Galaxy M2, etc).</div>
+                                 </div>
+                                 <button 
+                                   onClick={toggleEcoMode}
+                                   className={`w-12 h-6 rounded-full p-1 transition-colors ${isEcoMode ? 'bg-green-600' : 'bg-gray-700'}`}
+                                 >
+                                     <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isEcoMode ? 'translate-x-6' : 'translate-x-0'}`} />
+                                 </button>
+                             </div>
                          </div>
                      </div>
                  )}
 
-                 <AvatarVisualizer 
-                   volumeRef={volumeRef} 
-                   color={activeCharacter.visualizerColor}
-                   isActive={connectionState === 'connected' && !isStandby}
-                   ecoMode={isEcoMode}
-                 />
-              </div>
-           </div>
+                 {/* DEVICE LINK TAB (NEW) */}
+                 {settingsTab === 'device_link' && (
+                    <div className="flex flex-col h-full animate-fade-in relative">
+                        <div className="flex items-center justify-between border-b border-gray-800 pb-2 mb-6">
+                           <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                               <Wifi className="w-5 h-5 text-purple-400" /> Device Neural Link
+                           </h4>
+                           {role !== 'standalone' && (
+                               <span className={`text-xs px-2 py-1 rounded border ${p2pStatus === 'connected' ? 'bg-green-900/30 border-green-500 text-green-400' : 'bg-yellow-900/30 border-yellow-500 text-yellow-400'}`}>
+                                   {p2pStatus.toUpperCase()}
+                               </span>
+                           )}
+                        </div>
 
-           {/* Controls */}
-           <div className="p-4 sm:p-8 flex flex-col items-center justify-center space-y-4 z-20 pb-24 sm:pb-8">
-              <div className="text-center mb-2 sm:mb-4">
-                 <h2 className={`text-xl sm:text-2xl font-display font-bold text-${activeCharacter.themeColor}-500 tracking-wider transition-colors duration-500`}>
-                   {activeCharacter.name}
-                 </h2>
-                 <p className="text-gray-500 text-xs sm:text-sm font-mono mt-1">
-                   {connectionState === 'connected' ? (isStandby ? 'STANDBY' : 'ONLINE') : connectionState.toUpperCase()}
-                 </p>
-              </div>
+                        {/* STANDALONE SELECTION */}
+                        {role === 'standalone' && !showClientSetup && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full content-center pb-12">
+                                <button 
+                                  onClick={initializeHost}
+                                  className="flex flex-col items-center justify-center p-8 bg-gray-800/30 border border-gray-700 hover:border-purple-500 hover:bg-purple-900/10 rounded-2xl transition-all group"
+                                >
+                                    <Monitor className="w-16 h-16 text-gray-500 group-hover:text-purple-400 mb-6 transition-colors" />
+                                    <h3 className="text-2xl font-display font-bold text-white mb-2">Primary Core</h3>
+                                    <p className="text-sm text-gray-500 text-center">Use this device as the Display/Execution Unit (Laptop/PC)</p>
+                                </button>
 
-              {/* Main Mic & Always On */}
-              <div className="flex flex-col items-center gap-4">
-                  <button
-                    onClick={handleToggleConnection}
-                    className={`
-                      group relative flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 transition-all duration-300
-                      ${connectionState === 'connected' 
-                        ? (isStandby 
-                            ? `border-amber-500/50 bg-amber-900/10` 
-                            : `border-${activeCharacter.themeColor}-500/50 bg-${activeCharacter.themeColor}-900/10 hover:bg-${activeCharacter.themeColor}-900/30`)
-                        : `border-${activeCharacter.themeColor}-500/50 bg-${activeCharacter.themeColor}-900/10 hover:bg-${activeCharacter.themeColor}-900/30`}
-                      ${connectionState === 'connecting' ? 'animate-pulse' : ''}
-                    `}
-                  >
-                     {connectionState === 'connected' ? (
-                        isStandby ? <Moon className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500" /> : <MicOff className={`w-6 h-6 sm:w-8 sm:h-8 text-${activeCharacter.themeColor}-400`} />
-                     ) : (
-                        <Mic className={`w-6 h-6 sm:w-8 sm:h-8 text-${activeCharacter.themeColor}-400 group-hover:scale-110 transition-transform`} />
-                     )}
-                     {connectionState === 'connected' && !isStandby && (
-                        <span className={`absolute inset-0 rounded-full border border-${activeCharacter.themeColor}-500 animate-ping opacity-20`}></span>
-                     )}
-                  </button>
-              </div>
-           </div>
-        </div>
+                                <button 
+                                  onClick={() => setShowClientSetup(true)}
+                                  className="flex flex-col items-center justify-center p-8 bg-gray-800/30 border border-gray-700 hover:border-cyan-500 hover:bg-cyan-900/10 rounded-2xl transition-all group"
+                                >
+                                    <Smartphone className="w-16 h-16 text-gray-500 group-hover:text-cyan-400 mb-6 transition-colors" />
+                                    <h3 className="text-2xl font-display font-bold text-white mb-2">Voice Module</h3>
+                                    <p className="text-sm text-gray-500 text-center">Use this device for Microphone/Audio Input (Mobile)</p>
+                                </button>
+                            </div>
+                        )}
 
-        {error && (
-            <div className="absolute bottom-24 bg-red-900/80 text-red-100 px-4 py-2 rounded-full text-xs font-mono border border-red-500/50">
-              ERROR: {error}
-            </div>
-        )}
-      </main>
-      
-      {/* Settings Modal */}
-      {showSettings && (
-        <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-lg max-w-4xl w-full h-[600px] flex shadow-2xl relative overflow-hidden flex-col md:flex-row">
-            
-            {/* Sidebar */}
-            <div className="w-full md:w-64 bg-black/40 border-r border-gray-800 p-4 flex flex-col space-y-2">
-               <h3 className="text-xl font-display font-bold text-white mb-6 flex items-center">
-                 <Settings className="w-5 h-5 mr-2 text-cyan-500" /> CONFIG
-               </h3>
-               
-               <button 
-                 onClick={() => { setSettingsTab('general'); setIsCreatingCustom(false); setShowClientSetup(false); }}
-                 className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'general' ? 'bg-cyan-900/20 text-cyan-400 border border-cyan-900' : 'text-gray-400 hover:bg-gray-800'}`}
-               >
-                 <Settings className="w-4 h-4" />
-                 <span>General</span>
-               </button>
+                        {/* HOST VIEW */}
+                        {role === 'host' && (
+                            <div className="flex flex-col items-center justify-center h-full pb-12 space-y-8">
+                                 <div className="text-center">
+                                     <div className="text-sm text-purple-400 uppercase tracking-widest mb-4">Pairing Code</div>
+                                     <div className="text-7xl font-mono font-bold text-white tracking-wider bg-black/50 px-8 py-4 rounded-xl border border-purple-500/30 shadow-[0_0_30px_rgba(168,85,247,0.2)]">
+                                         {pairingCode}
+                                     </div>
+                                 </div>
+                                 
+                                 <div className="flex flex-col items-center space-y-4">
+                                     {p2pStatus === 'connected' ? (
+                                         <div className="flex items-center space-x-3 text-green-400 bg-green-900/20 px-6 py-3 rounded-full border border-green-500/30">
+                                             <Wifi className="w-5 h-5 animate-pulse" />
+                                             <span className="font-bold tracking-wide">SYSTEMS LINKED</span>
+                                         </div>
+                                     ) : (
+                                         <div className="flex items-center space-x-3 text-gray-500 animate-pulse">
+                                             <Activity className="w-5 h-5" />
+                                             <span>Waiting for connection...</span>
+                                         </div>
+                                     )}
+                                 </div>
 
-               <button 
-                 onClick={() => { setSettingsTab('device_link'); setIsCreatingCustom(false); setShowClientSetup(false); }}
-                 className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'device_link' ? 'bg-purple-900/20 text-purple-400 border border-purple-900' : 'text-gray-400 hover:bg-gray-800'}`}
-               >
-                 <Wifi className="w-4 h-4" />
-                 <span>Device Link</span>
-               </button>
+                                 <button 
+                                    onClick={disconnectP2P}
+                                    className="px-6 py-2 text-red-400 hover:bg-red-900/20 rounded-full transition-colors border border-transparent hover:border-red-500/30 text-sm"
+                                 >
+                                     Terminate Link
+                                 </button>
+                            </div>
+                        )}
 
-               <button 
-                 onClick={() => setSettingsTab('voice')}
-                 className={`text-left px-4 py-3 rounded-lg flex items-center space-x-3 transition-colors ${settingsTab === 'voice' ? 'bg-pink-900/20 text-pink-400 border border-pink-900' : 'text-gray-400 hover:bg-gray-800'}`}
-               >
-                 <Volume2 className="w-4 h-4" />
-                 <span>Voices</span>
-               </button>
+                        {/* CLIENT SETUP VIEW (Local State) */}
+                        {showClientSetup && role === 'standalone' && (
+                            <div className="flex flex-col items-center justify-center h-full pb-12 space-y-6">
+                                <h3 className="text-xl font-bold text-white">Enter Core Code</h3>
+                                <input 
+                                    type="text" 
+                                    value={targetCodeInput}
+                                    onChange={(e) => setTargetCodeInput(e.target.value.toUpperCase())}
+                                    placeholder="XXXX"
+                                    maxLength={4}
+                                    className="bg-black/50 border border-gray-700 text-white text-4xl font-mono text-center w-48 py-4 rounded-xl focus:border-cyan-500 focus:outline-none tracking-widest"
+                                />
+                                <div className="flex space-x-4">
+                                    <button 
+                                        onClick={() => setShowClientSetup(false)}
+                                        className="px-6 py-3 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                                    >
+                                        Back
+                                    </button>
+                                    <button 
+                                        onClick={() => connectToHost(targetCodeInput)}
+                                        disabled={targetCodeInput.length < 4}
+                                        className="px-8 py-3 rounded-lg bg-cyan-600 text-white font-bold hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_20px_rgba(8,145,178,0.4)]"
+                                    >
+                                        Connect
+                                    </button>
+                                </div>
+                            </div>
+                        )}
 
-                <div className="flex-1" />
-                <button onClick={() => setShowSettings(false)} className="px-4 py-3 text-gray-500 hover:text-white text-left text-sm">
-                    Close Menu
-                </button>
-            </div>
+                        {/* CLIENT CONNECTED VIEW */}
+                        {role === 'remote' && (
+                            <div className="flex flex-col items-center justify-center h-full pb-12 space-y-8">
+                                <div className="w-32 h-32 rounded-full bg-cyan-900/20 border-2 border-cyan-500 flex items-center justify-center shadow-[0_0_40px_rgba(6,182,212,0.3)] relative">
+                                    <Smartphone className="w-12 h-12 text-cyan-400" />
+                                    <div className="absolute -right-2 -bottom-2 w-12 h-12 bg-gray-900 rounded-full border border-gray-700 flex items-center justify-center">
+                                        <Monitor className="w-6 h-6 text-purple-400" />
+                                    </div>
+                                </div>
+                                
+                                <div className="text-center">
+                                    <h3 className="text-2xl font-bold text-white mb-2">Linked to Core</h3>
+                                    <p className="text-gray-500">Voice commands will execute on external display.</p>
+                                </div>
 
-            {/* Content Area */}
-            <div className="flex-1 bg-gray-900/50 p-6 overflow-y-auto">
-               
-               {/* GENERAL TAB */}
-               {settingsTab === 'general' && (
-                   <div className="space-y-6 animate-fade-in">
-                       <h4 className="text-lg font-bold text-white border-b border-gray-800 pb-2">Voice Protocols</h4>
-                       
-                       <div className="space-y-4">
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                               <div>
-                                   <div className="flex items-center justify-between mb-2">
-                                        <label className="block text-xs text-gray-500 uppercase font-mono">Wake Word Detection</label>
-                                        <button 
-                                            onClick={() => setWakeWordEnabled(!wakeWordEnabled)}
-                                            className={`w-8 h-4 rounded-full p-0.5 transition-colors ${wakeWordEnabled ? 'bg-cyan-600' : 'bg-gray-700'}`}
-                                        >
-                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform ${wakeWordEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                                        </button>
-                                   </div>
-                                   <input 
-                                     type="text" 
-                                     defaultValue={wakeWord}
-                                     disabled={!wakeWordEnabled}
-                                     onBlur={(e) => setWakeWord(e.target.value)}
-                                     placeholder="e.g. Hey Eva"
-                                     className={`w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none placeholder-gray-600 ${!wakeWordEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                   />
-                               </div>
-                               <div>
-                                   <div className="flex items-center justify-between mb-2 mt-7">
-                                        <label className="block text-xs text-gray-500 uppercase font-mono">Stop Word</label>
-                                        <button 
-                                            onClick={() => setStopWordEnabled(!stopWordEnabled)}
-                                            className={`w-8 h-4 rounded-full p-0.5 transition-colors ${stopWordEnabled ? 'bg-red-600' : 'bg-gray-700'}`}
-                                        >
-                                            <div className={`w-3 h-3 bg-white rounded-full transition-transform ${stopWordEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                                        </button>
-                                   </div>
-                                   <input 
-                                     type="text" 
-                                     defaultValue={stopWord}
-                                     disabled={!stopWordEnabled}
-                                     onBlur={(e) => setStopWord(e.target.value)}
-                                     placeholder="e.g. Stop"
-                                     className={`w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-red-500 focus:outline-none placeholder-gray-600 ${!stopWordEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                   />
-                               </div>
-                           </div>
+                                <button 
+                                    onClick={disconnectP2P}
+                                    className="px-6 py-2 text-red-400 hover:bg-red-900/20 rounded-full transition-colors border border-transparent hover:border-red-500/30 text-sm"
+                                >
+                                    Disconnect
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                 )}
 
-                           {/* NEW: DEVICE CONNECTION QUICK TOGGLE */}
-                           <div className="p-4 bg-purple-900/10 rounded border border-purple-700/30 flex items-center justify-between">
-                               <div>
-                                   <div className="font-bold text-sm text-purple-400 flex items-center"><Wifi className="w-4 h-4 mr-2"/> Device Link Status</div>
-                                   <div className="text-xs text-gray-400">
-                                      {role === 'standalone' ? 'Not Linked' : (p2pStatus === 'connected' ? 'Connected to Core' : 'Connecting...')}
-                                   </div>
-                               </div>
-                               {role !== 'standalone' ? (
-                                   <button 
-                                     onClick={disconnectP2P}
-                                     className="px-3 py-1 bg-red-900/20 text-red-400 text-xs border border-red-500/30 rounded hover:bg-red-900/40"
-                                   >
-                                       Disconnect
-                                   </button>
-                               ) : (
-                                   <button 
-                                     onClick={() => setSettingsTab('device_link')}
-                                     className="px-3 py-1 bg-purple-900/20 text-purple-400 text-xs border border-purple-500/30 rounded hover:bg-purple-900/40"
-                                   >
-                                       Setup Link
-                                   </button>
-                               )}
-                           </div>
+                 {/* VOICE TAB */}
+                 {settingsTab === 'voice' && (
+                     <div className="space-y-6 animate-fade-in relative h-full flex flex-col">
+                         
+                         {!isCreatingCustom ? (
+                             <>
+                                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-gray-800 pb-2 gap-2">
+                                     <h4 className="text-lg font-bold text-white">Neural Voice Module</h4>
+                                     <div className="flex gap-2 w-full sm:w-auto">
+                                         <button
+                                            onClick={() => setIsCreatingCustom(true)}
+                                            className="flex items-center gap-1 px-3 py-1 bg-cyan-900/30 text-cyan-400 border border-cyan-700 rounded-md text-xs hover:bg-cyan-900/50 transition-colors"
+                                         >
+                                             <Plus className="w-3 h-3" /> Create New
+                                         </button>
+                                         <div className="flex bg-black border border-gray-800 rounded-lg p-1">
+                                             {['All', 'Male', 'Female'].map((f) => (
+                                                 <button
+                                                     key={f}
+                                                     onClick={() => setVoiceFilter(f as any)}
+                                                     className={`px-3 py-1 text-xs rounded-md transition-all ${
+                                                         voiceFilter === f 
+                                                         ? 'bg-gray-700 text-white shadow-sm' 
+                                                         : 'text-gray-500 hover:text-gray-300'
+                                                     }`}
+                                                 >
+                                                     {f}
+                                                 </button>
+                                             ))}
+                                         </div>
+                                     </div>
+                                 </div>
 
-                           <div className="p-4 bg-gray-800/30 rounded border border-gray-800 flex items-center justify-between">
-                               <div>
-                                   <div className="font-bold text-sm text-gray-200">Always On / Wake Lock</div>
-                                   <div className="text-xs text-gray-500">Prevents Android "Doze" mode. Keep screen active.</div>
-                               </div>
-                               <button 
-                                 onClick={() => setAlwaysOn(!alwaysOn)}
-                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${alwaysOn ? 'bg-green-600' : 'bg-gray-700'}`}
-                               >
-                                   <div className={`w-4 h-4 bg-white rounded-full transition-transform ${alwaysOn ? 'translate-x-6' : 'translate-x-0'}`} />
-                               </button>
-                           </div>
-                           
-                           <div className="p-4 bg-yellow-900/10 rounded border border-yellow-700/30 flex items-center justify-between">
-                               <div>
-                                   <div className="font-bold text-sm text-yellow-500 flex items-center"><Zap className="w-4 h-4 mr-2"/> Turbo / Wired Mode</div>
-                                   <div className="text-xs text-gray-400">Optimizes for USB Tethering or high-speed connections.<br/>Reduces latency buffers for instant response.</div>
-                               </div>
-                               <button 
-                                 onClick={toggleLowLatency}
-                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${isLowLatency ? 'bg-yellow-600' : 'bg-gray-700'}`}
-                               >
-                                   <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isLowLatency ? 'translate-x-6' : 'translate-x-0'}`} />
-                               </button>
-                           </div>
-
-                           <div className="p-4 bg-green-900/10 rounded border border-green-700/30 flex items-center justify-between">
-                               <div>
-                                   <div className="font-bold text-sm text-green-500 flex items-center"><Leaf className="w-4 h-4 mr-2"/> Eco / Stability Mode</div>
-                                   <div className="text-xs text-gray-400">Essential for older devices (Galaxy M2, etc).</div>
-                               </div>
-                               <button 
-                                 onClick={toggleEcoMode}
-                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${isEcoMode ? 'bg-green-600' : 'bg-gray-700'}`}
-                               >
-                                   <div className={`w-4 h-4 bg-white rounded-full transition-transform ${isEcoMode ? 'translate-x-6' : 'translate-x-0'}`} />
-                               </button>
-                           </div>
-                       </div>
-                   </div>
-               )}
-
-               {/* DEVICE LINK TAB (NEW) */}
-               {settingsTab === 'device_link' && (
-                  <div className="flex flex-col h-full animate-fade-in relative">
-                      <div className="flex items-center justify-between border-b border-gray-800 pb-2 mb-6">
-                         <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                             <Wifi className="w-5 h-5 text-purple-400" /> Device Neural Link
-                         </h4>
-                         {role !== 'standalone' && (
-                             <span className={`text-xs px-2 py-1 rounded border ${p2pStatus === 'connected' ? 'bg-green-900/30 border-green-500 text-green-400' : 'bg-yellow-900/30 border-yellow-500 text-yellow-400'}`}>
-                                 {p2pStatus.toUpperCase()}
-                             </span>
-                         )}
-                      </div>
-
-                      {/* STANDALONE SELECTION */}
-                      {role === 'standalone' && !showClientSetup && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full content-center pb-12">
-                              <button 
-                                onClick={initializeHost}
-                                className="flex flex-col items-center justify-center p-8 bg-gray-800/30 border border-gray-700 hover:border-purple-500 hover:bg-purple-900/10 rounded-2xl transition-all group"
-                              >
-                                  <Monitor className="w-16 h-16 text-gray-500 group-hover:text-purple-400 mb-6 transition-colors" />
-                                  <h3 className="text-2xl font-display font-bold text-white mb-2">Primary Core</h3>
-                                  <p className="text-sm text-gray-500 text-center">Use this device as the Display/Execution Unit (Laptop/PC)</p>
-                              </button>
-
-                              <button 
-                                onClick={() => setShowClientSetup(true)}
-                                className="flex flex-col items-center justify-center p-8 bg-gray-800/30 border border-gray-700 hover:border-cyan-500 hover:bg-cyan-900/10 rounded-2xl transition-all group"
-                              >
-                                  <Smartphone className="w-16 h-16 text-gray-500 group-hover:text-cyan-400 mb-6 transition-colors" />
-                                  <h3 className="text-2xl font-display font-bold text-white mb-2">Voice Module</h3>
-                                  <p className="text-sm text-gray-500 text-center">Use this device for Microphone/Audio Input (Mobile)</p>
-                              </button>
-                          </div>
-                      )}
-
-                      {/* HOST VIEW */}
-                      {role === 'host' && (
-                          <div className="flex flex-col items-center justify-center h-full pb-12 space-y-8">
-                               <div className="text-center">
-                                   <div className="text-sm text-purple-400 uppercase tracking-widest mb-4">Pairing Code</div>
-                                   <div className="text-7xl font-mono font-bold text-white tracking-wider bg-black/50 px-8 py-4 rounded-xl border border-purple-500/30 shadow-[0_0_30px_rgba(168,85,247,0.2)]">
-                                       {pairingCode}
-                                   </div>
-                               </div>
-                               
-                               <div className="flex flex-col items-center space-y-4">
-                                   {p2pStatus === 'connected' ? (
-                                       <div className="flex items-center space-x-3 text-green-400 bg-green-900/20 px-6 py-3 rounded-full border border-green-500/30">
-                                           <Wifi className="w-5 h-5 animate-pulse" />
-                                           <span className="font-bold tracking-wide">SYSTEMS LINKED</span>
-                                       </div>
-                                   ) : (
-                                       <div className="flex items-center space-x-3 text-gray-500 animate-pulse">
-                                           <Activity className="w-5 h-5" />
-                                           <span>Waiting for connection...</span>
-                                       </div>
-                                   )}
-                               </div>
-
-                               <button 
-                                  onClick={disconnectP2P}
-                                  className="px-6 py-2 text-red-400 hover:bg-red-900/20 rounded-full transition-colors border border-transparent hover:border-red-500/30 text-sm"
-                               >
-                                   Terminate Link
-                               </button>
-                          </div>
-                      )}
-
-                      {/* CLIENT SETUP VIEW (Local State) */}
-                      {showClientSetup && role === 'standalone' && (
-                          <div className="flex flex-col items-center justify-center h-full pb-12 space-y-6">
-                              <h3 className="text-xl font-bold text-white">Enter Core Code</h3>
-                              <input 
-                                  type="text" 
-                                  value={targetCodeInput}
-                                  onChange={(e) => setTargetCodeInput(e.target.value.toUpperCase())}
-                                  placeholder="XXXX"
-                                  maxLength={4}
-                                  className="bg-black/50 border border-gray-700 text-white text-4xl font-mono text-center w-48 py-4 rounded-xl focus:border-cyan-500 focus:outline-none tracking-widest"
-                              />
-                              <div className="flex space-x-4">
-                                  <button 
-                                      onClick={() => setShowClientSetup(false)}
-                                      className="px-6 py-3 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
-                                  >
-                                      Back
-                                  </button>
-                                  <button 
-                                      onClick={() => connectToHost(targetCodeInput)}
-                                      disabled={targetCodeInput.length < 4}
-                                      className="px-8 py-3 rounded-lg bg-cyan-600 text-white font-bold hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_0_20px_rgba(8,145,178,0.4)]"
-                                  >
-                                      Connect
-                                  </button>
-                              </div>
-                          </div>
-                      )}
-
-                      {/* CLIENT CONNECTED VIEW */}
-                      {role === 'remote' && (
-                          <div className="flex flex-col items-center justify-center h-full pb-12 space-y-8">
-                              <div className="w-32 h-32 rounded-full bg-cyan-900/20 border-2 border-cyan-500 flex items-center justify-center shadow-[0_0_40px_rgba(6,182,212,0.3)] relative">
-                                  <Smartphone className="w-12 h-12 text-cyan-400" />
-                                  <div className="absolute -right-2 -bottom-2 w-12 h-12 bg-gray-900 rounded-full border border-gray-700 flex items-center justify-center">
-                                      <Monitor className="w-6 h-6 text-purple-400" />
-                                  </div>
-                              </div>
-                              
-                              <div className="text-center">
-                                  <h3 className="text-2xl font-bold text-white mb-2">Linked to Core</h3>
-                                  <p className="text-gray-500">Voice commands will execute on external display.</p>
-                              </div>
-
-                              <button 
-                                  onClick={disconnectP2P}
-                                  className="px-6 py-2 text-red-400 hover:bg-red-900/20 rounded-full transition-colors border border-transparent hover:border-red-500/30 text-sm"
-                              >
-                                  Disconnect
-                              </button>
-                          </div>
-                      )}
-                  </div>
-               )}
-
-               {/* VOICE TAB */}
-               {settingsTab === 'voice' && (
-                   <div className="space-y-6 animate-fade-in relative h-full flex flex-col">
-                       
-                       {!isCreatingCustom ? (
-                           <>
-                               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-gray-800 pb-2 gap-2">
-                                   <h4 className="text-lg font-bold text-white">Neural Voice Module</h4>
-                                   <div className="flex gap-2 w-full sm:w-auto">
-                                       <button
-                                          onClick={() => setIsCreatingCustom(true)}
-                                          className="flex items-center gap-1 px-3 py-1 bg-cyan-900/30 text-cyan-400 border border-cyan-700 rounded-md text-xs hover:bg-cyan-900/50 transition-colors"
-                                       >
-                                           <Plus className="w-3 h-3" /> Create New
-                                       </button>
-                                       <div className="flex bg-black border border-gray-800 rounded-lg p-1">
-                                           {['All', 'Male', 'Female'].map((f) => (
-                                               <button
-                                                   key={f}
-                                                   onClick={() => setVoiceFilter(f as any)}
-                                                   className={`px-3 py-1 text-xs rounded-md transition-all ${
-                                                       voiceFilter === f 
-                                                       ? 'bg-gray-700 text-white shadow-sm' 
-                                                       : 'text-gray-500 hover:text-gray-300'
-                                                   }`}
-                                               >
-                                                   {f}
-                                               </button>
-                                           ))}
-                                       </div>
-                                   </div>
-                               </div>
-
-                               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto pr-2 custom-scrollbar pb-10">
-                                   {/* Custom Characters First */}
-                                   {customCharacters.map((voice) => {
-                                       const isPending = pendingSelection === voice.id;
-                                       return (
-                                       <button
-                                           key={voice.id}
-                                           onClick={() => {
-                                                if (activeCharacter.id === voice.id) return;
-                                                setPendingSelection(voice.id);
-                                           }}
-                                           className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
-                                               activeCharacter.id === voice.id
-                                               ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
-                                               : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
-                                           }`}
-                                       >
-                                           <div className="flex justify-between items-start mb-2">
-                                               <span className={`font-bold font-display tracking-wide transition-colors truncate max-w-[80%] ${
-                                                   activeCharacter.id === voice.id ? `text-${voice.themeColor}-400` : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
-                                               }`}>
-                                                   {voice.name}
-                                               </span>
-                                               <button 
-                                                    onClick={(e) => handleDeleteCustomCharacter(voice.id, e)}
-                                                    className="text-gray-600 hover:text-red-500 p-0.5 rounded transition-colors z-20"
-                                               >
-                                                   <Trash2 className="w-3 h-3" />
-                                               </button>
-                                           </div>
-                                           <div className="flex items-center space-x-2 mb-2">
-                                               <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-${voice.themeColor}-900/30 text-${voice.themeColor}-300/70 border border-${voice.themeColor}-500/20`}>
-                                                   CUSTOM
-                                               </span>
-                                               <span className="text-[10px] text-gray-500">{voice.voiceName}</span>
-                                           </div>
-                                           
-                                           {/* CONFIRMATION OVERLAY */}
-                                           {isPending && (
-                                                <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center animate-fade-in backdrop-blur-md rounded-xl p-2 cursor-default" onClick={(e) => e.stopPropagation()}>
-                                                    <span className="text-[10px] font-bold text-gray-400 mb-2 tracking-widest uppercase">Confirm Switch</span>
-                                                    <div className="flex items-center gap-4">
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                selectCustomCharacter(voice);
-                                                                setPendingSelection(null);
-                                                            }}
-                                                            className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-100 hover:scale-110"
-                                                        >
-                                                            <CheckCircle className="w-5 h-5" />
-                                                        </button>
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setPendingSelection(null);
-                                                            }}
-                                                            className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all scale-100 hover:scale-110"
-                                                        >
-                                                            <X className="w-5 h-5" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                           )}
-                                       </button>
-                                       );
-                                   })}
-
-                                   {/* Standard Library */}
-                                   {VOICE_LIBRARY
-                                       .filter(v => voiceFilter === 'All' || v.gender === voiceFilter)
-                                       .map(voice => {
-                                         const isPending = pendingSelection === voice.name;
+                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 overflow-y-auto pr-2 custom-scrollbar pb-10">
+                                     {/* Custom Characters First */}
+                                     {customCharacters.map((voice) => {
+                                         const isPending = pendingSelection === voice.id;
                                          return (
-                                       <button
-                                           key={voice.name}
-                                           onClick={() => handleVoiceSelection(voice.name)}
-                                           className={`relative p-3 rounded-xl border text-left transition-all duration-300 group ${
-                                               activeCharacter.voiceName === voice.name
-                                               ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
-                                               : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
-                                           }`}
-                                       >
-                                           <div className="flex justify-between items-start mb-2">
-                                               <span className={`font-bold font-display tracking-wide transition-colors ${
-                                                   activeCharacter.voiceName === voice.name ? `text-${voice.themeColor}-400` : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
-                                               }`}>
-                                                   {voice.name}
-                                               </span>
-                                               <span className="text-[10px] text-gray-500">{voice.gender}</span>
-                                           </div>
-                                           <p className="text-xs text-gray-500 line-clamp-2">{voice.description}</p>
-                                           
-                                           {/* CONFIRMATION OVERLAY */}
-                                           {isPending && (
-                                                <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center animate-fade-in backdrop-blur-md rounded-xl p-2 cursor-default" onClick={(e) => e.stopPropagation()}>
-                                                    <span className="text-[10px] font-bold text-gray-400 mb-2 tracking-widest uppercase">Confirm Switch</span>
-                                                    <div className="flex items-center gap-4">
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                confirmVoiceSelection(voice.name);
-                                                            }}
-                                                            className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-100 hover:scale-110"
-                                                        >
-                                                            <CheckCircle className="w-5 h-5" />
-                                                        </button>
-                                                        <button 
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setPendingSelection(null);
-                                                            }}
-                                                            className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all scale-100 hover:scale-110"
-                                                        >
-                                                            <X className="w-5 h-5" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                           )}
-                                       </button>
-                                   )})}
-                               </div>
-                           </>
-                       ) : (
-                           <div className="animate-fade-in space-y-4">
-                               <div className="flex items-center justify-between border-b border-gray-800 pb-2">
-                                   <h4 className="text-lg font-bold text-white">Create Neural Personality</h4>
-                                   <button onClick={() => setIsCreatingCustom(false)} className="text-xs text-red-400 hover:text-red-300">Cancel</button>
-                               </div>
-                               
-                               <div className="space-y-4">
-                                   <div>
-                                       <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Name</label>
-                                       <input 
-                                           type="text" 
-                                           value={newCharName}
-                                           onChange={e => setNewCharName(e.target.value)}
-                                           className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none"
-                                           placeholder="e.g. OMEGA"
-                                       />
-                                   </div>
-                                   
-                                   <div>
-                                       <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Base Voice</label>
-                                       <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto custom-scrollbar p-1 border border-gray-800 rounded">
-                                           {VOICE_LIBRARY.map(v => (
-                                               <button
-                                                   key={v.name}
-                                                   onClick={() => setNewCharVoice(v.name)}
-                                                   className={`px-2 py-1 text-xs rounded border text-left ${
-                                                       newCharVoice === v.name
-                                                       ? `bg-${v.themeColor}-900/40 border-${v.themeColor}-500 text-${v.themeColor}-400`
-                                                       : 'bg-gray-900 border-gray-800 text-gray-500 hover:bg-gray-800'
-                                                   }`}
-                                               >
-                                                   {v.name}
-                                               </button>
-                                           ))}
-                                       </div>
-                                   </div>
+                                         <button
+                                             key={voice.id}
+                                             onClick={() => {
+                                                  if (activeCharacter.id === voice.id) return;
+                                                  setPendingSelection(voice.id);
+                                             }}
+                                             className={`relative p-3 rounded-xl border text-left transition-all duration-300 group overflow-hidden ${
+                                                 activeCharacter.id === voice.id
+                                                 ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
+                                                 : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
+                                             }`}
+                                         >
+                                             <div className="flex justify-between items-start mb-2">
+                                                 <span className={`font-bold font-display tracking-wide transition-colors truncate max-w-[80%] ${
+                                                     activeCharacter.id === voice.id ? `text-${voice.themeColor}-400` : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
+                                                 }`}>
+                                                     {voice.name}
+                                                 </span>
+                                                 <button 
+                                                      onClick={(e) => handleDeleteCustomCharacter(voice.id, e)}
+                                                      className="text-gray-600 hover:text-red-500 p-0.5 rounded transition-colors z-20"
+                                                 >
+                                                     <Trash2 className="w-3 h-3" />
+                                                 </button>
+                                             </div>
+                                             <div className="flex items-center space-x-2 mb-2">
+                                                 <span className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-${voice.themeColor}-900/30 text-${voice.themeColor}-300/70 border border-${voice.themeColor}-500/20`}>
+                                                     CUSTOM
+                                                 </span>
+                                                 <span className="text-[10px] text-gray-500">{voice.voiceName}</span>
+                                             </div>
+                                             
+                                             {/* CONFIRMATION OVERLAY */}
+                                             {isPending && (
+                                                  <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center animate-fade-in backdrop-blur-md rounded-xl p-2 cursor-default" onClick={(e) => e.stopPropagation()}>
+                                                      <span className="text-[10px] font-bold text-gray-400 mb-2 tracking-widest uppercase">Confirm Switch</span>
+                                                      <div className="flex items-center gap-4">
+                                                          <button 
+                                                              onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  selectCustomCharacter(voice);
+                                                                  setPendingSelection(null);
+                                                              }}
+                                                              className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                          >
+                                                              <CheckCircle className="w-5 h-5" />
+                                                          </button>
+                                                          <button 
+                                                              onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  setPendingSelection(null);
+                                                              }}
+                                                              className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                          >
+                                                              <X className="w-5 h-5" />
+                                                          </button>
+                                                      </div>
+                                                  </div>
+                                             )}
+                                         </button>
+                                         );
+                                     })}
 
-                                   <div>
-                                       <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">System Instructions</label>
-                                       <textarea 
-                                           value={newCharInstruction}
-                                           onChange={e => setNewCharInstruction(e.target.value)}
-                                           className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none h-32 text-sm"
-                                           placeholder="Describe personality, tone, and behavior..."
-                                       />
-                                   </div>
+                                     {/* Standard Library */}
+                                     {VOICE_LIBRARY
+                                         .filter(v => voiceFilter === 'All' || v.gender === voiceFilter)
+                                         .map(voice => {
+                                           const isPending = pendingSelection === voice.name;
+                                           return (
+                                         <button
+                                             key={voice.name}
+                                             onClick={() => handleVoiceSelection(voice.name)}
+                                             className={`relative p-3 rounded-xl border text-left transition-all duration-300 group ${
+                                                 activeCharacter.voiceName === voice.name
+                                                 ? `bg-${voice.themeColor}-900/20 border-${voice.themeColor}-500 ring-1 ring-${voice.themeColor}-500 shadow-[0_0_15px_rgba(0,0,0,0.2)]` 
+                                                 : `bg-black/40 border-gray-800 hover:border-${voice.themeColor}-500/50 hover:bg-gray-900`
+                                             }`}
+                                         >
+                                             <div className="flex justify-between items-start mb-2">
+                                                 <span className={`font-bold font-display tracking-wide transition-colors ${
+                                                     activeCharacter.voiceName === voice.name ? `text-${voice.themeColor}-400` : `text-${voice.themeColor}-400 group-hover:text-${voice.themeColor}-300`
+                                                 }`}>
+                                                     {voice.name}
+                                                 </span>
+                                                 <span className="text-[10px] text-gray-500">{voice.gender}</span>
+                                             </div>
+                                             <p className="text-xs text-gray-500 line-clamp-2">{voice.description}</p>
+                                             
+                                             {/* CONFIRMATION OVERLAY */}
+                                             {isPending && (
+                                                  <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center animate-fade-in backdrop-blur-md rounded-xl p-2 cursor-default" onClick={(e) => e.stopPropagation()}>
+                                                      <span className="text-[10px] font-bold text-gray-400 mb-2 tracking-widest uppercase">Confirm Switch</span>
+                                                      <div className="flex items-center gap-4">
+                                                          <button 
+                                                              onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  confirmVoiceSelection(voice.name);
+                                                              }}
+                                                              className="p-2 rounded-full bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                          >
+                                                              <CheckCircle className="w-5 h-5" />
+                                                          </button>
+                                                          <button 
+                                                              onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  setPendingSelection(null);
+                                                              }}
+                                                              className="p-2 rounded-full bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white transition-all scale-100 hover:scale-110"
+                                                          >
+                                                              <X className="w-5 h-5" />
+                                                          </button>
+                                                      </div>
+                                                  </div>
+                                             )}
+                                         </button>
+                                     )})}
+                                 </div>
+                             </>
+                         ) : (
+                             <div className="animate-fade-in space-y-4">
+                                 <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                                     <h4 className="text-lg font-bold text-white">Create Neural Personality</h4>
+                                     <button onClick={() => setIsCreatingCustom(false)} className="text-xs text-red-400 hover:text-red-300">Cancel</button>
+                                 </div>
+                                 
+                                 <div className="space-y-4">
+                                     <div>
+                                         <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Name</label>
+                                         <input 
+                                             type="text" 
+                                             value={newCharName}
+                                             onChange={e => setNewCharName(e.target.value)}
+                                             className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none"
+                                             placeholder="e.g. OMEGA"
+                                         />
+                                     </div>
+                                     
+                                     <div>
+                                         <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">Base Voice</label>
+                                         <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto custom-scrollbar p-1 border border-gray-800 rounded">
+                                             {VOICE_LIBRARY.map(v => (
+                                                 <button
+                                                     key={v.name}
+                                                     onClick={() => setNewCharVoice(v.name)}
+                                                     className={`px-2 py-1 text-xs rounded border text-left ${
+                                                         newCharVoice === v.name
+                                                         ? `bg-${v.themeColor}-900/40 border-${v.themeColor}-500 text-${v.themeColor}-400`
+                                                         : 'bg-gray-900 border-gray-800 text-gray-500 hover:bg-gray-800'
+                                                     }`}
+                                                 >
+                                                     {v.name}
+                                                 </button>
+                                             ))}
+                                         </div>
+                                     </div>
 
-                                   <button 
-                                       onClick={handleSaveCustomCharacter}
-                                       className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-lg shadow-[0_0_15px_rgba(8,145,178,0.4)] transition-all"
-                                   >
-                                       Initialize Personality
-                                   </button>
-                               </div>
-                           </div>
-                       )}
-                   </div>
-               )}
+                                     <div>
+                                         <label className="block text-xs text-gray-500 mb-1 uppercase font-mono">System Instructions</label>
+                                         <textarea 
+                                             value={newCharInstruction}
+                                             onChange={e => setNewCharInstruction(e.target.value)}
+                                             className="w-full bg-black border border-gray-700 rounded p-2 text-white focus:border-cyan-500 focus:outline-none h-32 text-sm"
+                                             placeholder="Describe personality, tone, and behavior..."
+                                         />
+                                     </div>
+
+                                     <button 
+                                         onClick={handleSaveCustomCharacter}
+                                         className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-lg shadow-[0_0_15px_rgba(8,145,178,0.4)] transition-all"
+                                     >
+                                         Initialize Personality
+                                     </button>
+                                 </div>
+                             </div>
+                         )}
+                     </div>
+                 )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
